@@ -57,6 +57,10 @@ interface MeetingRoomItem {
   capacity: number;
   hasHdmi: boolean;
   hdmiCount: number;
+  isReserved?: boolean;
+  isMyBooking?: boolean;
+  bookings?: DeskBookingInfo[];
+  activeBooking?: DeskBookingInfo | null;
 }
 
 interface SectionItem {
@@ -214,21 +218,26 @@ export const FloorPlansPage: React.FC = () => {
   const floorPlanInputRef = useRef<HTMLInputElement>(null);
 
   const [pendingDeskIds, setPendingDeskIds] = useState<string[]>([]);
+  const [pendingMeetingRoomIds, setPendingMeetingRoomIds] = useState<string[]>([]);
 
   const loadPendingDeskIds = async () => {
     try {
       const items = await getPendingOutboxItems();
       const ids: string[] = [];
+      const mrIds: string[] = [];
       for (const item of items) {
-        if (item.action === 'CREATE_BOOKING' && item.payload?.deskId) {
-          ids.push(item.payload.deskId);
+        if (item.action === 'CREATE_BOOKING') {
+          if (item.payload?.deskId) ids.push(item.payload.deskId);
+          if (item.payload?.meetingRoomId) mrIds.push(item.payload.meetingRoomId);
         } else if (item.action === 'BULK_BOOKING' && Array.isArray(item.payload?.deskIds)) {
           ids.push(...item.payload.deskIds);
         }
       }
       setPendingDeskIds(ids);
+      setPendingMeetingRoomIds(mrIds);
     } catch {
       setPendingDeskIds([]);
+      setPendingMeetingRoomIds([]);
     }
   };
 
@@ -1117,78 +1126,194 @@ export const FloorPlansPage: React.FC = () => {
 
           {/* Right Column: Walled Meeting Room Pod / Dedicated Rooms */}
           <div className="lg:col-span-1 space-y-4">
-            {meetingRoom ? (
-              <div className="border-3 border-slate-800 bg-white rounded-2xl p-4 shadow-sm relative">
-                {/* Doorway Indication */}
-                <div className="absolute -left-2 top-8 w-2 h-6 bg-white border-y-2 border-l-2 border-slate-800" />
+            {meetingRoom ? (() => {
+                const isRoomPendingSync = pendingMeetingRoomIds.includes(meetingRoom.id);
+                const mrBookings = meetingRoom.bookings || [];
+                const activeMrBooking = mrBookings.length > 0 ? mrBookings[0] : meetingRoom.activeBooking || null;
+                const isWholeRoomBooked = !!activeMrBooking || !!meetingRoom.isReserved;
+                const isMyWholeRoomBooking =
+                  (meetingRoom.isMyBooking || mrBookings.some((b: any) => b.userId === user?.id)) &&
+                  !isRoomPendingSync;
 
-                <div className="border-b border-slate-200 pb-2 mb-3">
-                  <div className="text-[9px] font-mono font-bold text-purple-700 uppercase">
-                    CONFERENCE POD
-                  </div>
-                  <h3 className="text-xs font-black text-slate-900 truncate">
-                    {meetingRoom.name}
-                  </h3>
-                  <div className="text-[10px] text-slate-500 font-bold mt-0.5">
-                    Capacity: {meetingRoom.capacity} Seats {meetingRoom.hasHdmi ? '• HDMI Enabled' : ''}
-                  </div>
-                </div>
+                return (
+                  <div
+                    className={`border-3 rounded-2xl p-4 shadow-sm relative transition-all ${
+                      isRoomPendingSync
+                        ? 'border-amber-500 bg-amber-50/50 ring-2 ring-amber-300'
+                        : isMyWholeRoomBooking
+                        ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-300'
+                        : isWholeRoomBooked
+                        ? 'border-red-400 bg-red-50/40 ring-1 ring-red-200'
+                        : 'border-slate-800 bg-white'
+                    }`}
+                  >
+                    {/* Doorway Indication */}
+                    <div
+                      className={`absolute -left-2 top-8 w-2 h-6 border-y-2 border-l-2 transition-colors ${
+                        isRoomPendingSync
+                          ? 'bg-amber-100 border-amber-500'
+                          : isMyWholeRoomBooking
+                          ? 'bg-blue-100 border-blue-500'
+                          : isWholeRoomBooked
+                          ? 'bg-red-100 border-red-400'
+                          : 'bg-white border-slate-800'
+                      }`}
+                    />
 
-                {/* Conference Table Seating (Interactive Clickable Cubicles) */}
-                <div className="grid grid-cols-2 gap-2 bg-purple-50/40 p-2.5 rounded-xl border border-purple-200/80">
-                  {Array.from({ length: meetingRoom.capacity }).map((_, idx) => {
-                    const code = `M-${String(idx + 1).padStart(2, '0')}`;
-                    const foundDesk = desks.find(
-                      (d) => d.deskCode === code || (d.isMeetingRoom && d.deskNumber === 1000 + idx + 1)
-                    );
-                    const seatDesk: DeskItem = foundDesk || {
-                      id: `mr-seat-${currentSection?.id}-${idx + 1}`,
-                      deskCode: code,
-                      deskNumber: 1000 + idx + 1,
-                      hasHdmi: idx < meetingRoom.hdmiCount,
-                      isMeetingRoom: true,
-                      status: 'AVAILABLE',
-                    };
-                    const hasActiveSeatBooking = seatDesk.bookings && seatDesk.bookings.length > 0;
-                    const isSeatBooked = hasActiveSeatBooking || seatDesk.status === 'BOOKED';
-                    const isAvailable = !isSeatBooked;
-                    const isSelected = activeDesk?.id === seatDesk.id;
-                    const bookedSeatUser = seatDesk.bookings?.[0]?.user || seatDesk.bookings?.[0]?.bookedByUser;
+                    <div className="flex items-start justify-between gap-2 border-b border-slate-200 pb-2 mb-3">
+                      <div>
+                        <div className="text-[9px] font-mono font-bold text-purple-700 uppercase">
+                          CONFERENCE POD
+                        </div>
+                        <h3 className="text-xs font-black text-slate-900 truncate">
+                          {meetingRoom.name}
+                        </h3>
+                        <div className="text-[10px] text-slate-500 font-bold mt-0.5">
+                          Capacity: {meetingRoom.capacity} Seats {meetingRoom.hasHdmi ? '• HDMI Enabled' : ''}
+                        </div>
+                      </div>
 
-                    return (
-                      <button
-                        key={seatDesk.id}
-                        type="button"
-                        onClick={() => openDeskInspector(seatDesk)}
-                        className={`h-11 rounded-lg border-2 font-bold text-[10px] flex flex-col items-center justify-center transition-all duration-150 cursor-pointer shadow-xs ${
-                          isSelected
-                            ? 'ring-3 ring-purple-500 scale-105 z-10'
-                            : 'hover:scale-102 hover:shadow-sm'
-                        } ${
-                          isAvailable
-                            ? 'bg-purple-50 hover:bg-purple-100 border-purple-300 text-purple-900'
-                            : 'bg-red-100/90 border-red-300 text-red-800'
-                        }`}
-                        title={`Conference Seat ${seatDesk.deskCode} (${isAvailable ? 'Available' : 'Reserved'})`}
-                      >
-                        <span className="font-black">{seatDesk.deskCode}</span>
-                        {bookedSeatUser ? (
-                          <span className="text-[7.5px] font-black text-red-700 truncate max-w-[50px]" title={`Reserved by ${bookedSeatUser.name}`}>
-                            {bookedSeatUser.name.split(' ')[0]}
+                      <div>
+                        {isRoomPendingSync ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-800 border border-amber-300 uppercase tracking-wider flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5 animate-pulse" />
+                            Sync Pending
                           </span>
-                        ) : isSeatBooked ? (
-                          <span className="text-[7.5px] font-black text-red-700">Booked</span>
-                        ) : seatDesk.hasHdmi ? (
-                          <span className="text-[8px] text-purple-700 font-mono font-bold">HDMI</span>
+                        ) : isMyWholeRoomBooking ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-blue-100 text-blue-800 border border-blue-300 uppercase tracking-wider flex items-center gap-1">
+                            <CheckCircle2 className="w-2.5 h-2.5" />
+                            Your Reservation
+                          </span>
+                        ) : isWholeRoomBooked ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-red-100 text-red-800 border border-red-300 uppercase tracking-wider flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" />
+                            Reserved
+                          </span>
                         ) : (
-                          <span className="text-[8px] text-slate-400 font-mono">STD</span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200 uppercase tracking-wider">
+                            Available
+                          </span>
                         )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
+                      </div>
+                    </div>
+
+                    {/* Room Booking Summary Bar */}
+                    {activeMrBooking && (
+                      <div
+                        className={`p-2 rounded-xl border text-[10px] font-medium mb-3 ${
+                          isMyWholeRoomBooking
+                            ? 'bg-blue-50 border-blue-200 text-blue-900'
+                            : 'bg-red-50 border-red-200 text-red-900'
+                        }`}
+                      >
+                        <div className="font-bold flex items-center justify-between">
+                          <span>
+                            {isMyWholeRoomBooking
+                              ? 'Your Active Session'
+                              : `Booked by ${activeMrBooking.user?.name || 'Colleague'}`}
+                          </span>
+                          <span>
+                            {new Date(activeMrBooking.startTime).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}{' '}
+                            –{' '}
+                            {new Date(activeMrBooking.endTime).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                        {activeMrBooking.title && (
+                          <div className="text-[9px] opacity-80 truncate mt-0.5">Topic: {activeMrBooking.title}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Conference Table Seating (Interactive Clickable Cubicles) */}
+                    <div className="grid grid-cols-2 gap-2 bg-purple-50/40 p-2.5 rounded-xl border border-purple-200/80">
+                      {Array.from({ length: meetingRoom.capacity }).map((_, idx) => {
+                        const code = `M-${String(idx + 1).padStart(2, '0')}`;
+                        const foundDesk = desks.find(
+                          (d) => d.deskCode === code || (d.isMeetingRoom && d.deskNumber === 1000 + idx + 1)
+                        );
+                        const seatDesk: DeskItem = foundDesk || {
+                          id: `mr-seat-${currentSection?.id}-${idx + 1}`,
+                          deskCode: code,
+                          deskNumber: 1000 + idx + 1,
+                          hasHdmi: idx < meetingRoom.hdmiCount,
+                          isMeetingRoom: true,
+                          status: 'AVAILABLE',
+                        };
+                        const hasActiveSeatBooking = seatDesk.bookings && seatDesk.bookings.length > 0;
+                        const isSeatPendingSync = isRoomPendingSync || pendingDeskIds.includes(seatDesk.id);
+                        const isSeatMine =
+                          ((seatDesk.bookings && seatDesk.bookings.some((b: any) => b.userId === user?.id)) ||
+                            isMyWholeRoomBooking) &&
+                          !isSeatPendingSync;
+                        const isSeatBooked =
+                          hasActiveSeatBooking || seatDesk.status === 'BOOKED' || isWholeRoomBooked;
+                        const isAvailable = !isSeatBooked && !isSeatPendingSync;
+                        const isSelected = activeDesk?.id === seatDesk.id;
+                        const bookedSeatUser =
+                          seatDesk.bookings?.[0]?.user ||
+                          seatDesk.bookings?.[0]?.bookedByUser ||
+                          activeMrBooking?.user;
+
+                        return (
+                          <button
+                            key={seatDesk.id}
+                            type="button"
+                            onClick={() => openDeskInspector(seatDesk)}
+                            className={`h-11 rounded-lg border-2 font-bold text-[10px] flex flex-col items-center justify-center transition-all duration-150 cursor-pointer shadow-xs ${
+                              isSelected
+                                ? 'ring-3 ring-purple-500 scale-105 z-10'
+                                : 'hover:scale-102 hover:shadow-sm'
+                            } ${
+                              isSeatPendingSync
+                                ? 'border-amber-400 bg-amber-100/90 text-amber-900 ring-1 ring-amber-300'
+                                : isSeatMine
+                                ? 'border-blue-500 bg-blue-100/90 text-blue-900 hover:bg-blue-200'
+                                : isAvailable
+                                ? 'bg-purple-50 hover:bg-purple-100 border-purple-300 text-purple-900'
+                                : 'bg-red-100/90 border-red-300 text-red-800'
+                            }`}
+                            title={`Conference Seat ${seatDesk.deskCode} (${
+                              isSeatPendingSync
+                                ? 'Sync Pending (Offline)'
+                                : isSeatMine
+                                ? 'Your Seat Reservation'
+                                : isAvailable
+                                ? 'Available'
+                                : 'Reserved'
+                            })`}
+                          >
+                            <span className="font-black">{seatDesk.deskCode}</span>
+                            {isSeatPendingSync ? (
+                              <span className="text-[7.5px] font-black text-amber-700 uppercase">SYNC</span>
+                            ) : isSeatMine ? (
+                              <span className="text-[7.5px] font-black text-blue-700 uppercase">MINE</span>
+                            ) : bookedSeatUser ? (
+                              <span
+                                className="text-[7.5px] font-black text-red-700 truncate max-w-[50px]"
+                                title={`Reserved by ${bookedSeatUser.name}`}
+                              >
+                                {bookedSeatUser.name.split(' ')[0]}
+                              </span>
+                            ) : isSeatBooked ? (
+                              <span className="text-[7.5px] font-black text-red-700">Booked</span>
+                            ) : seatDesk.hasHdmi ? (
+                              <span className="text-[8px] text-purple-700 font-mono font-bold">HDMI</span>
+                            ) : (
+                              <span className="text-[8px] text-slate-400 font-mono">STD</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })() : (
               <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center text-slate-400 text-xs italic">
                 No meeting room configured for this section.
               </div>

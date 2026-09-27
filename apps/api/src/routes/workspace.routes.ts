@@ -313,7 +313,26 @@ router.get(
                           },
                         },
                       },
-                      meetingRoom: true,
+                      meetingRoom: {
+                        include: {
+                          bookings: {
+                            where: {
+                              status: 'CONFIRMED',
+                              startTime: { lte: rangeEnd },
+                              endTime: { gte: rangeStart },
+                            },
+                            include: {
+                              bookedByUser: {
+                                select: { id: true, name: true, email: true },
+                              },
+                              user: {
+                                select: { id: true, name: true, email: true, department: true },
+                              },
+                            },
+                            orderBy: { startTime: 'asc' },
+                          },
+                        },
+                      },
                     },
                   },
                 },
@@ -324,7 +343,54 @@ router.get(
         orderBy: { code: 'asc' },
       });
 
-      return res.json(branches);
+      const enrichedBranches = branches.map((b) => ({
+        ...b,
+        buildings: b.buildings.map((bld) => ({
+          ...bld,
+          floors: bld.floors.map((fl) => ({
+            ...fl,
+            sections: fl.sections.map((sec) => {
+              const mr = sec.meetingRoom;
+              const mrBookings = mr?.bookings || [];
+              const activeMrBooking = mrBookings.length > 0 ? mrBookings[0] : null;
+              const isWholeRoomBooked = !!activeMrBooking;
+              const callerUserId = req.user?.id;
+              const isMyRoomBooking = mrBookings.some((bk: any) => bk.userId === callerUserId);
+
+              const enrichedMeetingRoom = mr
+                ? {
+                    ...mr,
+                    isReserved: isWholeRoomBooked,
+                    isMyBooking: isMyRoomBooking,
+                    bookings: mrBookings,
+                    activeBooking: activeMrBooking,
+                  }
+                : null;
+
+              return {
+                ...sec,
+                meetingRoom: enrichedMeetingRoom,
+                desks: sec.desks.map((desk) => {
+                  const isMeetingDesk = desk.isMeetingRoom || desk.deskCode.startsWith('M-');
+                  if (isMeetingDesk && isWholeRoomBooked && activeMrBooking) {
+                    return {
+                      ...desk,
+                      status: 'BOOKED',
+                      isReserved: true,
+                      isMyBooking: isMyRoomBooking,
+                      bookings: mrBookings,
+                      activeBooking: activeMrBooking,
+                    };
+                  }
+                  return desk;
+                }),
+              };
+            }),
+          })),
+        })),
+      }));
+
+      return res.json(enrichedBranches);
     } catch (error: any) {
       console.error('Failed to fetch hierarchy:', error);
       return res.status(500).json({ error: error.message });

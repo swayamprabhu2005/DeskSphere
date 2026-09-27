@@ -652,7 +652,26 @@ router.get('/floor-plans', authMiddleware, async (req: AuthenticatedRequest, res
                         },
                       },
                     },
-                    meetingRoom: true,
+                    meetingRoom: {
+                      include: {
+                        bookings: {
+                          where: {
+                            status: 'CONFIRMED',
+                            startTime: { lte: rangeEnd },
+                            endTime: { gte: rangeStart },
+                          },
+                          include: {
+                            bookedByUser: {
+                              select: { id: true, name: true, email: true },
+                            },
+                            user: {
+                              select: { id: true, name: true, email: true, department: true },
+                            },
+                          },
+                          orderBy: { startTime: 'asc' },
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -688,27 +707,62 @@ router.get('/floor-plans', authMiddleware, async (req: AuthenticatedRequest, res
         ...bld,
         floors: bld.floors.map((fl) => ({
           ...fl,
-          sections: fl.sections.map((sec) => ({
-            ...sec,
-            desks: sec.desks.map((desk) => {
-              const deskBookings = desk.bookings || [];
-              const isMyBooking = deskBookings.some((bk) => bk.userId === user.id);
-              const isReserved = deskBookings.length > 0;
+          sections: fl.sections.map((sec) => {
+            const mr = sec.meetingRoom;
+            const mrBookings = mr?.bookings || [];
+            const activeMrBooking = mrBookings.length > 0 ? mrBookings[0] : null;
+            const isWholeRoomBooked = !!activeMrBooking;
+            const isMyRoomBooking = mrBookings.some((bk: any) => bk.userId === user.id);
 
-              return {
-                id: desk.id,
-                deskCode: desk.deskCode,
-                deskNumber: desk.deskNumber,
-                hasHdmi: desk.hasHdmi,
-                isMeetingRoom: desk.isMeetingRoom,
-                status: isReserved ? 'BOOKED' : 'AVAILABLE',
-                isReserved,
-                isMyBooking,
-                bookings: deskBookings,
-                activeBooking: deskBookings[0] || null,
-              };
-            }),
-          })),
+            const enrichedMeetingRoom = mr
+              ? {
+                  ...mr,
+                  isReserved: isWholeRoomBooked,
+                  isMyBooking: isMyRoomBooking,
+                  bookings: mrBookings,
+                  activeBooking: activeMrBooking,
+                }
+              : null;
+
+            return {
+              ...sec,
+              meetingRoom: enrichedMeetingRoom,
+              desks: sec.desks.map((desk) => {
+                const isMeetingDesk = desk.isMeetingRoom || desk.deskCode.startsWith('M-');
+                if (isMeetingDesk && isWholeRoomBooked && activeMrBooking) {
+                  return {
+                    id: desk.id,
+                    deskCode: desk.deskCode,
+                    deskNumber: desk.deskNumber,
+                    hasHdmi: desk.hasHdmi,
+                    isMeetingRoom: true,
+                    status: 'BOOKED',
+                    isReserved: true,
+                    isMyBooking: isMyRoomBooking,
+                    bookings: mrBookings,
+                    activeBooking: activeMrBooking,
+                  };
+                }
+
+                const deskBookings = desk.bookings || [];
+                const isMyBooking = deskBookings.some((bk) => bk.userId === user.id);
+                const isReserved = deskBookings.length > 0;
+
+                return {
+                  id: desk.id,
+                  deskCode: desk.deskCode,
+                  deskNumber: desk.deskNumber,
+                  hasHdmi: desk.hasHdmi,
+                  isMeetingRoom: desk.isMeetingRoom,
+                  status: isReserved ? 'BOOKED' : 'AVAILABLE',
+                  isReserved,
+                  isMyBooking,
+                  bookings: deskBookings,
+                  activeBooking: deskBookings[0] || null,
+                };
+              }),
+            };
+          }),
         })),
       })),
     }));
