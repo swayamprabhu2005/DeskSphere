@@ -77,7 +77,7 @@ export const SignupPage: React.FC = () => {
                       required
                       value={name}
                       onChange={e => setName(e.target.value)}
-                      placeholder="Jane Doe"
+                      placeholder="Enter Name"
                       className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
                     />
                   </div>
@@ -95,7 +95,7 @@ export const SignupPage: React.FC = () => {
                         required
                         value={email}
                         onChange={e => setEmail(e.target.value)}
-                        placeholder="admin@company.com"
+                        placeholder="Enter Email"
                         className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
                       />
                     </div>
@@ -137,7 +137,7 @@ export const SignupPage: React.FC = () => {
                       required
                       value={orgName}
                       onChange={e => setOrgName(e.target.value)}
-                      placeholder="Acme Corporation"
+                      placeholder="Enter Org Name"
                       className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
                     />
                   </div>
@@ -154,7 +154,7 @@ export const SignupPage: React.FC = () => {
                       required
                       value={subdomain}
                       onChange={e => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                      placeholder="acme"
+                      placeholder="Enter Subdomain"
                       className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
                     />
                   </div>
