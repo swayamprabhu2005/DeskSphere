@@ -29,19 +29,35 @@ interface ActiveBookingDesk {
   branchName: string;
 }
 
+interface ActiveBookingMeetingRoom {
+  id: string;
+  name: string;
+  capacity: number;
+  sectionName?: string;
+  floorCode?: string;
+  floorName?: string;
+  buildingName?: string;
+  branchName?: string;
+}
+
 interface ActiveBooking {
   id: string;
+  resourceType?: string;
+  title?: string | null;
   slotType: string;
   startTime: string;
   endTime: string;
   status: string;
   notes?: string | null;
-  desk: ActiveBookingDesk;
+  desk?: ActiveBookingDesk | null;
+  meetingRoom?: ActiveBookingMeetingRoom | null;
   bookedByColleague?: { id: string; name: string; email: string } | null;
 }
 
 interface UpcomingBooking {
   id: string;
+  resourceType?: string;
+  title?: string | null;
   slotType: string;
   startTime: string;
   endTime: string;
@@ -105,7 +121,8 @@ export const EmployeeDashboard: React.FC = () => {
   }, []);
 
   const handleReleaseActiveBooking = async (bookingId: string) => {
-    if (!window.confirm("Are you sure you want to release this workstation reservation?")) {
+    const isMeeting = activeBooking?.resourceType === 'MEETING_ROOM' || !!activeBooking?.meetingRoom;
+    if (!window.confirm(`Are you sure you want to release this ${isMeeting ? 'meeting room' : 'workstation'} reservation?`)) {
       return;
     }
 
@@ -115,11 +132,11 @@ export const EmployeeDashboard: React.FC = () => {
         method: "POST",
         body: JSON.stringify({ bookingId, reason: "Released from dashboard" }),
       });
-      setActionNotice({ type: "success", text: "Workstation released successfully." });
+      setActionNotice({ type: "success", text: `${isMeeting ? 'Meeting room' : 'Workstation'} released successfully.` });
       await loadSummary();
       setTimeout(() => setActionNotice(null), 4000);
     } catch (err: any) {
-      setActionNotice({ type: "error", text: err.message || "Failed to release desk." });
+      setActionNotice({ type: "error", text: err.message || "Failed to release reservation." });
     } finally {
       setReleasing(false);
     }
@@ -220,83 +237,117 @@ export const EmployeeDashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Active Booking Card (2 cols) */}
         <div className="lg:col-span-2">
-          {activeBooking ? (
-            <div className="bg-gradient-to-br from-emerald-900 via-slate-900 to-slate-950 text-white rounded-3xl p-6 sm:p-7 shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[280px]">
-              {/* Glow Accent */}
-              <div className="absolute -top-16 -right-16 w-48 h-48 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none" />
+          {activeBooking ? (() => {
+            const isMeetingRoom = activeBooking.resourceType === 'MEETING_ROOM' || !!activeBooking.meetingRoom;
+            const resourceTitle = isMeetingRoom
+              ? (activeBooking.meetingRoom?.name || activeBooking.title || 'Meeting Room')
+              : `Desk ${activeBooking.desk?.deskCode || 'Reserved'}`;
+            const locationString = isMeetingRoom
+              ? `${activeBooking.meetingRoom?.floorName || 'Floor'} • ${activeBooking.meetingRoom?.sectionName || 'Section'} (${activeBooking.meetingRoom?.buildingName || 'Building'})`
+              : `${activeBooking.desk?.floorName || 'Floor'} • ${activeBooking.desk?.sectionName || 'Section'} (${activeBooking.desk?.buildingName || 'Building'})`;
 
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                    <span className="text-[10px] font-mono font-black tracking-widest text-emerald-400 uppercase">
-                      ACTIVE RESERVATION TODAY
-                    </span>
-                  </div>
-                  <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-white/10 text-slate-200 backdrop-blur-xs">
-                    {formatSlotLabel(activeBooking.slotType)}
-                  </span>
-                </div>
+            return (
+              <div
+                className={`text-white rounded-3xl p-6 sm:p-7 shadow-xl relative overflow-hidden flex flex-col justify-between min-h-[280px] ${
+                  isMeetingRoom
+                    ? 'bg-gradient-to-br from-purple-950 via-slate-900 to-slate-950'
+                    : 'bg-gradient-to-br from-emerald-900 via-slate-900 to-slate-950'
+                }`}
+              >
+                {/* Glow Accent */}
+                <div
+                  className={`absolute -top-16 -right-16 w-48 h-48 rounded-full blur-3xl pointer-events-none ${
+                    isMeetingRoom ? 'bg-purple-500/20' : 'bg-emerald-500/20'
+                  }`}
+                />
 
-                <div className="mt-5 flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
-                  <div>
-                    <div className="text-3xl sm:text-4xl font-black tracking-tight text-white flex items-center gap-3">
-                      <span>Desk {activeBooking.desk.deskCode}</span>
-                      {activeBooking.desk.hasHdmi && (
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-400/30">
-                          HDMI MONITORS
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-slate-300 font-semibold mt-1 flex items-center gap-2">
-                      <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>
-                        {activeBooking.desk.floorName} • {activeBooking.desk.sectionName} ({activeBooking.desk.buildingName})
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-2.5 h-2.5 rounded-full animate-ping ${
+                          isMeetingRoom ? 'bg-purple-400' : 'bg-emerald-400'
+                        }`}
+                      />
+                      <span
+                        className={`text-[10px] font-mono font-black tracking-widest uppercase ${
+                          isMeetingRoom ? 'text-purple-300' : 'text-emerald-400'
+                        }`}
+                      >
+                        {isMeetingRoom ? 'ACTIVE MEETING ROOM TODAY' : 'ACTIVE RESERVATION TODAY'}
                       </span>
                     </div>
-                  </div>
-                </div>
-
-                {/* Proxy attribution banner if booked on behalf */}
-                {activeBooking.bookedByColleague && (
-                  <div className="mt-4 p-2.5 rounded-xl bg-white/10 border border-white/15 text-[11px] text-slate-200 flex items-center gap-2">
-                    <Users className="w-3.5 h-3.5 text-blue-300" />
-                    <span>
-                      Reserved on your behalf by <strong className="text-white">{activeBooking.bookedByColleague.name}</strong>
+                    <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-white/10 text-slate-200 backdrop-blur-xs">
+                      {formatSlotLabel(activeBooking.slotType)}
                     </span>
                   </div>
-                )}
-              </div>
 
-              {/* Action Buttons at bottom of active card */}
-              <div className="mt-6 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
-                <div className="text-[11px] text-slate-400 flex items-center gap-2">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>Check-in guaranteed. Ready for immediate use.</span>
+                  <div className="mt-5 flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+                    <div>
+                      <div className="text-3xl sm:text-4xl font-black tracking-tight text-white flex items-center gap-3">
+                        <span>{resourceTitle}</span>
+                        {!isMeetingRoom && activeBooking.desk?.hasHdmi && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-400/30">
+                            HDMI MONITORS
+                          </span>
+                        )}
+                        {isMeetingRoom && !!activeBooking.meetingRoom?.capacity && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono font-bold border border-purple-400/30 flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            {activeBooking.meetingRoom.capacity} SEATS
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-300 font-semibold mt-1 flex items-center gap-2">
+                        <MapPin
+                          className={`w-3.5 h-3.5 ${isMeetingRoom ? 'text-purple-400' : 'text-emerald-400'}`}
+                        />
+                        <span>{locationString}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Proxy attribution banner if booked on behalf */}
+                  {activeBooking.bookedByColleague && (
+                    <div className="mt-4 p-2.5 rounded-xl bg-white/10 border border-white/15 text-[11px] text-slate-200 flex items-center gap-2">
+                      <Users className="w-3.5 h-3.5 text-blue-300" />
+                      <span>
+                        Reserved on your behalf by <strong className="text-white">{activeBooking.bookedByColleague.name}</strong>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Link
-                    to="/employee/floor-plan"
-                    className="px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <span>View on Floor Map</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
+                {/* Action Buttons at bottom of active card */}
+                <div className="mt-6 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Check-in guaranteed. Ready for immediate use.</span>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleReleaseActiveBooking(activeBooking.id)}
-                    disabled={releasing}
-                    className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    <span>{releasing ? "Releasing..." : "Release Desk"}</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to="/employee/floor-plan"
+                      className="px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span>View on Floor Map</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => handleReleaseActiveBooking(activeBooking.id)}
+                      disabled={releasing}
+                      className="px-4 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      <span>{releasing ? "Releasing..." : isMeetingRoom ? "Release Meeting Room" : "Release Desk"}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
+            );
+          })() : (
             <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-xs text-center flex flex-col items-center justify-center min-h-[280px] space-y-4">
               <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center">
                 <Sparkles className="w-7 h-7" />
@@ -425,7 +476,7 @@ export const EmployeeDashboard: React.FC = () => {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black text-slate-900">
-                    Desk {b.deskCode}
+                    {b.resourceType === 'MEETING_ROOM' ? b.deskCode : `Desk ${b.deskCode}`}
                   </span>
                   <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
                     {b.status}

@@ -854,6 +854,7 @@ router.get('/calendar-bookings', authMiddleware, async (req: AuthenticatedReques
 
     const whereClause: any = {
       organizationId: orgId,
+      userId: user.id,
       status: 'CONFIRMED',
       startTime: { lte: endRange },
       endTime: { gte: startRange },
