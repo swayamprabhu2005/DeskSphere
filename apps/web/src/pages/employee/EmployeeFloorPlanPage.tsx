@@ -414,6 +414,31 @@ export const EmployeeFloorPlanPage: React.FC = () => {
   const [activeDeskSearchId, setActiveDeskSearchId] = useState<string | null>(null);
   const [deskColleagueQueries, setDeskColleagueQueries] = useState<Record<string, string>>({});
 
+  // Detect whether current user already holds a workstation on selectedMassDate
+  const userExistingDeskOnMassDate = useMemo(() => {
+    if (!selectedMassDate || !user?.id) return null;
+    const allDesks = branches.flatMap((b) =>
+      b.buildings.flatMap((bld) =>
+        bld.floors.flatMap((f) => f.sections.flatMap((s) => s.desks))
+      )
+    );
+    return (
+      allDesks.find((d) =>
+        !d.isMeetingRoom &&
+        !d.deskCode?.startsWith('M-') &&
+        d.bookings?.some((b) => {
+          if (b.status === 'CANCELLED') return false;
+          const bUserId = b.user?.id || b.userId || (b as any).bookedByUser?.id;
+          const bStart = b.startTime?.split('T')[0];
+          const bEnd = b.endTime?.split('T')[0];
+          return bUserId === user.id && selectedMassDate >= bStart && selectedMassDate <= bEnd;
+        })
+      ) || null
+    );
+  }, [selectedMassDate, user?.id, branches]);
+
+  const userHasBookingOnSelectedMassDate = !!userExistingDeskOnMassDate;
+
   // Whole Meeting Room Reservation State
   const [isWholeRoomModalOpen, setIsWholeRoomModalOpen] = useState<boolean>(false);
   const [selectedMeetingRoomForBooking, setSelectedMeetingRoomForBooking] = useState<MeetingRoomItem | null>(null);
@@ -874,19 +899,25 @@ export const EmployeeFloorPlanPage: React.FC = () => {
 
     // Validate colleague assignments
     for (const desk of bulkSelectedDesks) {
-      const alloc = massDeskAllocations[desk.id];
-      if (alloc?.mode === 'COLLEAGUE' && !alloc.colleagueId) {
-        setErrorNotice(`Please assign a teammate for workstation ${desk.deskCode} or switch it to Myself.`);
+      const alloc = massDeskAllocations[desk.id] || (userHasBookingOnSelectedMassDate ? { mode: 'COLLEAGUE' } : undefined);
+      const isSelf = !userHasBookingOnSelectedMassDate && alloc?.mode === 'SELF';
+      if (!isSelf && !alloc?.colleagueId) {
+        setErrorNotice(
+          userHasBookingOnSelectedMassDate
+            ? `Please assign a teammate for workstation ${desk.deskCode}.`
+            : `Please assign a teammate for workstation ${desk.deskCode} or switch it to Myself.`
+        );
         return;
       }
     }
 
     const allocationsPayload = bulkSelectedDesks.map((d, idx) => {
-      const alloc = massDeskAllocations[d.id] || (idx === 0 ? { mode: 'SELF' } : { mode: 'COLLEAGUE' });
-      const isColleague = alloc.mode === 'COLLEAGUE' && alloc.colleagueId;
+      const defaultMode = userHasBookingOnSelectedMassDate ? 'COLLEAGUE' : (idx === 0 ? 'SELF' : 'COLLEAGUE');
+      const alloc = massDeskAllocations[d.id] || { mode: defaultMode };
+      const isSelf = !userHasBookingOnSelectedMassDate && alloc.mode === 'SELF';
       return {
         deskId: d.id,
-        colleagueUserId: isColleague ? alloc.colleagueId! : (user?.id || ''),
+        colleagueUserId: isSelf ? (user?.id || '') : (alloc.colleagueId || ''),
       };
     });
 
@@ -2172,41 +2203,64 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                   </div>
 
                   {/* Range Quick Preset Chips */}
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const s = parseLocalDate(rangeStartDate);
-                        s.setDate(s.getDate() + 7);
-                        setRangeEndDate(formatLocalDate(s));
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800 text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
-                    >
-                      +7 Days
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const s = parseLocalDate(rangeStartDate);
-                        s.setDate(s.getDate() + 14);
-                        setRangeEndDate(formatLocalDate(s));
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800 text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
-                    >
-                      +14 Days
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const s = parseLocalDate(rangeStartDate);
-                        s.setDate(s.getDate() + 30);
-                        setRangeEndDate(formatLocalDate(s));
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
-                    >
-                      +30 Days (Max)
-                    </button>
-                  </div>
+                  {(() => {
+                    const spanDays = (() => {
+                      if (!rangeStartDate || !rangeEndDate) return 0;
+                      const start = parseLocalDate(rangeStartDate);
+                      const end = parseLocalDate(rangeEndDate);
+                      return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+                    })();
+
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const s = parseLocalDate(rangeStartDate);
+                            s.setDate(s.getDate() + 7);
+                            setRangeEndDate(formatLocalDate(s));
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors shadow-2xs ${
+                            spanDays === 7
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                              : 'bg-white hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800'
+                          }`}
+                        >
+                          +7 Days
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const s = parseLocalDate(rangeStartDate);
+                            s.setDate(s.getDate() + 14);
+                            setRangeEndDate(formatLocalDate(s));
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors shadow-2xs ${
+                            spanDays === 14
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                              : 'bg-white hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800'
+                          }`}
+                        >
+                          +14 Days
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const s = parseLocalDate(rangeStartDate);
+                            s.setDate(s.getDate() + 30);
+                            setRangeEndDate(formatLocalDate(s));
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors shadow-2xs ${
+                            spanDays === 30
+                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                              : 'bg-white hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800'
+                          }`}
+                        >
+                          +30 Days (Max)
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 items-end">
@@ -2787,10 +2841,21 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Banner when user already holds a cubicle on selectedMassDate */}
+                {userHasBookingOnSelectedMassDate && (
+                  <div className="flex items-center gap-2.5 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 font-medium animate-fade-in">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      You already have an active reservation for <strong>Desk {userExistingDeskOnMassDate?.deskCode}</strong> on {selectedMassDate ? formatDateDisplay(selectedMassDate).date : 'this date'}. Pod workstations can only be allocated to teammates.
+                    </span>
+                  </div>
+                )}
+
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {bulkSelectedDesks.map((desk, idx) => {
-                    const alloc = massDeskAllocations[desk.id] || (idx === 0 ? { mode: 'SELF' } : { mode: 'COLLEAGUE' });
-                    const isSelf = alloc.mode === 'SELF';
+                    const defaultMode = userHasBookingOnSelectedMassDate ? 'COLLEAGUE' : (idx === 0 ? 'SELF' : 'COLLEAGUE');
+                    const alloc = massDeskAllocations[desk.id] || { mode: defaultMode };
+                    const isSelf = !userHasBookingOnSelectedMassDate && alloc.mode === 'SELF';
                     const isSearchOpen = activeDeskSearchId === desk.id;
                     const deskQuery = (deskColleagueQueries[desk.id] || '').toLowerCase();
                     const filteredColleagues = colleaguesList.filter((c) =>
@@ -2814,48 +2879,60 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                             </span>
                           </div>
 
-                          {/* Toggle: Myself vs Colleague */}
-                          <div className="flex items-center bg-slate-200/70 p-0.5 rounded-xl text-xs font-bold">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMassDeskAllocations((prev) => ({
-                                  ...prev,
-                                  [desk.id]: { mode: 'SELF' },
-                                }));
-                                if (activeDeskSearchId === desk.id) setActiveDeskSearchId(null);
-                              }}
-                              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                                isSelf
-                                  ? 'bg-purple-600 text-white shadow-2xs font-black'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              Myself
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMassDeskAllocations((prev) => ({
-                                  ...prev,
-                                  [desk.id]: {
-                                    mode: 'COLLEAGUE',
-                                    colleagueId: prev[desk.id]?.colleagueId,
-                                    colleagueName: prev[desk.id]?.colleagueName,
-                                    colleagueEmail: prev[desk.id]?.colleagueEmail,
-                                    colleagueDepartment: prev[desk.id]?.colleagueDepartment,
-                                  },
-                                }));
-                              }}
-                              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                                !isSelf
-                                  ? 'bg-purple-600 text-white shadow-2xs font-black'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              Colleague
-                            </button>
-                          </div>
+                          {/* Toggle: Myself vs Colleague or Colleague Only Badge */}
+                          {userHasBookingOnSelectedMassDate ? (
+                            <span className="px-2.5 py-1 rounded-xl bg-purple-100/90 text-purple-900 text-[10px] font-black uppercase tracking-wider border border-purple-200 shadow-2xs">
+                              Colleague Only
+                            </span>
+                          ) : (
+                            <div className="flex items-center bg-slate-200/70 p-0.5 rounded-xl text-xs font-bold">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMassDeskAllocations((prev) => {
+                                    const next = { ...prev };
+                                    for (const k of Object.keys(next)) {
+                                      if (next[k]?.mode === 'SELF') {
+                                        next[k] = { mode: 'COLLEAGUE' };
+                                      }
+                                    }
+                                    next[desk.id] = { mode: 'SELF' };
+                                    return next;
+                                  });
+                                  if (activeDeskSearchId === desk.id) setActiveDeskSearchId(null);
+                                }}
+                                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                                  isSelf
+                                    ? 'bg-purple-600 text-white shadow-2xs font-black'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                Myself
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMassDeskAllocations((prev) => ({
+                                    ...prev,
+                                    [desk.id]: {
+                                      mode: 'COLLEAGUE',
+                                      colleagueId: prev[desk.id]?.colleagueId,
+                                      colleagueName: prev[desk.id]?.colleagueName,
+                                      colleagueEmail: prev[desk.id]?.colleagueEmail,
+                                      colleagueDepartment: prev[desk.id]?.colleagueDepartment,
+                                    },
+                                  }));
+                                }}
+                                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                                  !isSelf
+                                    ? 'bg-purple-600 text-white shadow-2xs font-black'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                Colleague
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Allocation Details */}
@@ -3121,7 +3198,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
               {/* Dynamic Availability & Busy Status Check on wholeRoomDate */}
               {(() => {
                 const selectedDateRoomBooking = (selectedMeetingRoomForBooking.bookings || []).find((b: any) => {
-                  const bDate = new Date(b.startTime).toISOString().split('T')[0];
+                  const bDate = b.startTime ? formatLocalDate(new Date(b.startTime)) : '';
                   return bDate === wholeRoomDate && b.status === 'CONFIRMED';
                 }) || null;
 

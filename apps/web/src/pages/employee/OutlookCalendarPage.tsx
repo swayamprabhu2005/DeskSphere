@@ -128,6 +128,18 @@ export interface ColleagueItem {
   role: string;
 }
 
+function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(dStr: string): Date {
+  const [y, m, d] = dStr.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
 export const OutlookCalendarPage: React.FC = () => {
   const { user } = useAuth();
 
@@ -155,7 +167,7 @@ export const OutlookCalendarPage: React.FC = () => {
 
   // Date-Click Single-Day Booking Modal State
   const [isBookingModalOpen, setIsBookingModalOpen] = useState<boolean>(false);
-  const [bookingModalDate, setBookingModalDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [bookingModalDate, setBookingModalDate] = useState<string>(formatLocalDate(new Date()));
   const [bookingResourceType, setBookingResourceType] = useState<'DESK' | 'MEETING_ROOM'>('DESK');
   const [selectedDeskId, setSelectedDeskId] = useState<string>('');
   const [isCubicleDropdownOpen, setIsCubicleDropdownOpen] = useState<boolean>(false);
@@ -175,11 +187,11 @@ export const OutlookCalendarPage: React.FC = () => {
 
   // Multi-Day Range Reservation State (Up to 30 Days)
   const [bookingDurationMode, setBookingDurationMode] = useState<'SINGLE' | 'RANGE'>('SINGLE');
-  const [rangeStartDate, setRangeStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [rangeStartDate, setRangeStartDate] = useState<string>(formatLocalDate(new Date()));
   const [rangeEndDate, setRangeEndDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 14);
-    return d.toISOString().split('T')[0];
+    return formatLocalDate(d);
   });
   const [rangeWeekdaysOnly, setRangeWeekdaysOnly] = useState<boolean>(true);
   const [rangeSmartSkip, setRangeSmartSkip] = useState<boolean>(false);
@@ -205,8 +217,8 @@ export const OutlookCalendarPage: React.FC = () => {
     end.setDate(end.getDate() + (6 - end.getDay()));
 
     return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0],
+      startDate: formatLocalDate(start),
+      endDate: formatLocalDate(end),
     };
   }, [currentDate]);
 
@@ -326,15 +338,17 @@ export const OutlookCalendarPage: React.FC = () => {
     const startDay = firstDayOfMonth.getDay();
     const prevMonthLastDay = new Date(year, month, 0).getDate();
 
+    const todayLocalStr = formatLocalDate(new Date());
+
     // Previous month padding
     for (let i = startDay - 1; i >= 0; i--) {
       const d = new Date(year, month - 1, prevMonthLastDay - i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = formatLocalDate(d);
       days.push({
         date: d,
         dateStr,
         isCurrentMonth: false,
-        isToday: dateStr === new Date().toISOString().split('T')[0],
+        isToday: dateStr === todayLocalStr,
         events: filteredEvents.filter((e) => e.bookingDate === dateStr),
       });
     }
@@ -342,12 +356,12 @@ export const OutlookCalendarPage: React.FC = () => {
     // Current month
     for (let i = 1; i <= lastDayOfMonth.getDate(); i++) {
       const d = new Date(year, month, i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = formatLocalDate(d);
       days.push({
         date: d,
         dateStr,
         isCurrentMonth: true,
-        isToday: dateStr === new Date().toISOString().split('T')[0],
+        isToday: dateStr === todayLocalStr,
         events: filteredEvents.filter((e) => e.bookingDate === dateStr),
       });
     }
@@ -356,12 +370,12 @@ export const OutlookCalendarPage: React.FC = () => {
     const remainingDays = (7 - (days.length % 7)) % 7;
     for (let i = 1; i <= remainingDays; i++) {
       const d = new Date(year, month + 1, i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = formatLocalDate(d);
       days.push({
         date: d,
         dateStr,
         isCurrentMonth: false,
-        isToday: dateStr === new Date().toISOString().split('T')[0],
+        isToday: dateStr === todayLocalStr,
         events: filteredEvents.filter((e) => e.bookingDate === dateStr),
       });
     }
@@ -447,11 +461,12 @@ export const OutlookCalendarPage: React.FC = () => {
   // Dynamic Range Dates Array (Capped at 30 Days)
   const calendarRangeDates = useMemo(() => {
     if (!rangeStartDate || !rangeEndDate) return [];
-    const start = new Date(rangeStartDate + 'T00:00:00');
-    const end = new Date(rangeEndDate + 'T00:00:00');
+    const start = parseLocalDate(rangeStartDate);
+    const end = parseLocalDate(rangeEndDate);
     if (end < start) return [];
 
-    const maxEnd = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const maxEnd = new Date(start);
+    maxEnd.setDate(maxEnd.getDate() + 30);
     const effectiveEnd = end > maxEnd ? maxEnd : end;
 
     const dates: string[] = [];
@@ -459,12 +474,20 @@ export const OutlookCalendarPage: React.FC = () => {
     while (cur <= effectiveEnd) {
       const dayOfWeek = cur.getDay();
       if (!rangeWeekdaysOnly || (dayOfWeek !== 0 && dayOfWeek !== 6)) {
-        dates.push(cur.toISOString().split('T')[0]);
+        dates.push(formatLocalDate(cur));
       }
       cur.setDate(cur.getDate() + 1);
     }
     return dates;
   }, [rangeStartDate, rangeEndDate, rangeWeekdaysOnly]);
+
+  // Day Span between rangeStartDate and rangeEndDate
+  const calendarRangeSpanDays = useMemo(() => {
+    if (!rangeStartDate || !rangeEndDate) return 0;
+    const start = parseLocalDate(rangeStartDate);
+    const end = parseLocalDate(rangeEndDate);
+    return Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  }, [rangeStartDate, rangeEndDate]);
 
   // Dynamic Conflict Detection for selectedDeskId across calendarRangeDates
   const { availableCalendarDates, conflictedCalendarDates } = useMemo(() => {
@@ -576,9 +599,9 @@ export const OutlookCalendarPage: React.FC = () => {
     setBookingModalDate(dateStr);
     setBookingDurationMode('SINGLE');
     setRangeStartDate(dateStr);
-    const d14 = new Date(dateStr + 'T00:00:00');
+    const d14 = parseLocalDate(dateStr);
     d14.setDate(d14.getDate() + 14);
-    setRangeEndDate(d14.toISOString().split('T')[0]);
+    setRangeEndDate(formatLocalDate(d14));
     setRangeWeekdaysOnly(true);
     setRangeSmartSkip(false);
     setShowCalendarSmartSkipPrompt(false);
@@ -1176,36 +1199,45 @@ export const OutlookCalendarPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
-                              const s = new Date(rangeStartDate + 'T00:00:00');
-                              const e = new Date(s);
-                              e.setDate(e.getDate() + 7);
-                              setRangeEndDate(e.toISOString().split('T')[0]);
+                              const s = parseLocalDate(rangeStartDate);
+                              s.setDate(s.getDate() + 7);
+                              setRangeEndDate(formatLocalDate(s));
                             }}
-                            className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition-colors shadow-2xs ${
+                              calendarRangeSpanDays === 7
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                : 'bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-800'
+                            }`}
                           >
                             +7d
                           </button>
                           <button
                             type="button"
                             onClick={() => {
-                              const s = new Date(rangeStartDate + 'T00:00:00');
-                              const e = new Date(s);
-                              e.setDate(e.getDate() + 14);
-                              setRangeEndDate(e.toISOString().split('T')[0]);
+                              const s = parseLocalDate(rangeStartDate);
+                              s.setDate(s.getDate() + 14);
+                              setRangeEndDate(formatLocalDate(s));
                             }}
-                            className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition-colors shadow-2xs ${
+                              calendarRangeSpanDays === 14
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                : 'bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-800'
+                            }`}
                           >
                             +14d
                           </button>
                           <button
                             type="button"
                             onClick={() => {
-                              const s = new Date(rangeStartDate + 'T00:00:00');
-                              const e = new Date(s);
-                              e.setDate(e.getDate() + 30);
-                              setRangeEndDate(e.toISOString().split('T')[0]);
+                              const s = parseLocalDate(rangeStartDate);
+                              s.setDate(s.getDate() + 30);
+                              setRangeEndDate(formatLocalDate(s));
                             }}
-                            className="px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold cursor-pointer transition-colors shadow-2xs ${
+                              calendarRangeSpanDays === 30
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                : 'bg-white hover:bg-indigo-100 border border-indigo-200 text-indigo-800'
+                            }`}
                           >
                             +30d (Max)
                           </button>
@@ -1218,7 +1250,7 @@ export const OutlookCalendarPage: React.FC = () => {
                           <input
                             type="date"
                             value={rangeStartDate}
-                            min={new Date().toISOString().split('T')[0]}
+                            min={formatLocalDate(new Date())}
                             onChange={(e) => {
                               setRangeStartDate(e.target.value);
                               if (e.target.value > rangeEndDate) setRangeEndDate(e.target.value);
@@ -1233,9 +1265,9 @@ export const OutlookCalendarPage: React.FC = () => {
                             value={rangeEndDate}
                             min={rangeStartDate}
                             max={(() => {
-                              const s = new Date(rangeStartDate + 'T00:00:00');
+                              const s = parseLocalDate(rangeStartDate);
                               s.setDate(s.getDate() + 30);
-                              return s.toISOString().split('T')[0];
+                              return formatLocalDate(s);
                             })()}
                             onChange={(e) => setRangeEndDate(e.target.value)}
                             className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
