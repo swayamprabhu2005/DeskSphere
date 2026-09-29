@@ -28,6 +28,7 @@ export interface DeskBookingInfo {
   startTime: string;
   endTime: string;
   notes?: string | null;
+  title?: string | null;
   user?: {
     id: string;
     name: string;

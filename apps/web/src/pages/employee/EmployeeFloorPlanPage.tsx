@@ -38,6 +38,8 @@ export interface DeskBookingInfo {
   endTime: string;
   status?: string;
   notes?: string | null;
+  title?: string | null;
+  userId?: string;
   user?: {
     id: string;
     name: string;
@@ -183,6 +185,49 @@ function getFutureDateString(days: number): string {
   return formatLocalDate(d);
 }
 
+function getMinBookingDate(): string {
+  const now = new Date();
+  if (now.getHours() >= 18) {
+    return getFutureDateString(1);
+  }
+  return getTodayString();
+}
+
+function getIntradaySlotAvailability(targetDateStr?: string) {
+  const now = new Date();
+  const todayStr = getTodayString();
+  const isToday = !targetDateStr || targetDateStr === todayStr;
+
+  if (!isToday) {
+    return {
+      isToday: false,
+      dayPassed: false,
+      morningAvailable: true,
+      afternoonAvailable: true,
+      fullDayAvailable: true,
+    };
+  }
+
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+  const currentTimeDecimal = currentHour + currentMinute / 60;
+
+  // After 6:00 PM (18:00) -> whole day has concluded
+  const dayPassed = currentTimeDecimal >= 18;
+  // After 1:30 PM (13.5) -> morning session has ended
+  const morningAvailable = currentTimeDecimal < 13.5;
+  const afternoonAvailable = currentTimeDecimal < 18;
+  const fullDayAvailable = currentTimeDecimal < 13.5;
+
+  return {
+    isToday,
+    dayPassed,
+    morningAvailable,
+    afternoonAvailable,
+    fullDayAvailable,
+  };
+}
+
 export function getDatesInRange(startStr: string, endStr: string): string[] {
   const dates: string[] = [];
   const start = parseLocalDate(startStr);
@@ -233,8 +278,12 @@ export const EmployeeFloorPlanPage: React.FC = () => {
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
   // Multi-Day Date Range Selection
-  const [startDate, setStartDate] = useState<string>(getTodayString());
-  const [endDate, setEndDate] = useState<string>(getFutureDateString(7));
+  const [startDate, setStartDate] = useState<string>(() => getMinBookingDate());
+  const [endDate, setEndDate] = useState<string>(() => {
+    const minStart = parseLocalDate(getMinBookingDate());
+    minStart.setDate(minStart.getDate() + 7);
+    return formatLocalDate(minStart);
+  });
   const [modalWeekOffset, setModalWeekOffset] = useState<number>(0);
 
   // Active Branch / Building / Floor / Section navigation
@@ -258,25 +307,26 @@ export const EmployeeFloorPlanPage: React.FC = () => {
 
   // Workstation Multi-Day Range Reservation (Up to 30 Days)
   const [deskScheduleMode, setDeskScheduleMode] = useState<'MATRIX' | 'RANGE'>('MATRIX');
-  const [rangeStartDate, setRangeStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [rangeStartDate, setRangeStartDate] = useState<string>(() => getMinBookingDate());
   const [rangeEndDate, setRangeEndDate] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 14);
-    return d.toISOString().split('T')[0];
+    const minStart = parseLocalDate(getMinBookingDate());
+    minStart.setDate(minStart.getDate() + 14);
+    return formatLocalDate(minStart);
   });
   const [rangeWeekdaysOnly, setRangeWeekdaysOnly] = useState<boolean>(true);
   const [rangeSmartSkip, setRangeSmartSkip] = useState<boolean>(false);
   const [showSmartSkipPrompt, setShowSmartSkipPrompt] = useState<boolean>(false);
 
-  // Computed Date Range Array (Capped at 30 Days)
+  // Computed Date Range Array (Capped at 30 Days, timezone-safe local calculations)
   const computedRangeDates = useMemo(() => {
     if (!rangeStartDate || !rangeEndDate) return [];
-    const start = new Date(rangeStartDate + 'T00:00:00');
-    const end = new Date(rangeEndDate + 'T00:00:00');
-    if (end < start) return [];
+    const start = parseLocalDate(rangeStartDate);
+    const end = parseLocalDate(rangeEndDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return [];
 
     // Enforce 30-day limit
-    const maxEnd = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const maxEnd = new Date(start);
+    maxEnd.setDate(maxEnd.getDate() + 30);
     const effectiveEnd = end > maxEnd ? maxEnd : end;
 
     const dates: string[] = [];
@@ -284,20 +334,23 @@ export const EmployeeFloorPlanPage: React.FC = () => {
     while (cur <= effectiveEnd) {
       const dayOfWeek = cur.getDay(); // 0 = Sun, 6 = Sat
       if (!rangeWeekdaysOnly || (dayOfWeek !== 0 && dayOfWeek !== 6)) {
-        dates.push(cur.toISOString().split('T')[0]);
+        dates.push(formatLocalDate(cur));
       }
       cur.setDate(cur.getDate() + 1);
     }
     return dates;
   }, [rangeStartDate, rangeEndDate, rangeWeekdaysOnly]);
 
-  // Dynamic Range Conflict Evaluation for activeDesk
+  // Dynamic Range Conflict Evaluation for activeDesk and user double-booking
   const { availableRangeDates, conflictedRangeDates } = useMemo(() => {
     if (!activeDesk || computedRangeDates.length === 0) {
       return { availableRangeDates: [], conflictedRangeDates: [] };
     }
     const available: string[] = [];
     const conflicted: { date: string; reason: string }[] = [];
+
+    const targetUserId = bookingForMode === 'COLLEAGUE' ? selectedColleague?.id : user?.id;
+    const allFloorDesks = branches.flatMap((b) => b.buildings.flatMap((bld) => bld.floors.flatMap((f) => f.sections.flatMap((s) => s.desks))));
 
     for (const dStr of computedRangeDates) {
       // 1. Check desk booking collisions
@@ -316,11 +369,33 @@ export const EmployeeFloorPlanPage: React.FC = () => {
         continue;
       }
 
+      // 2. Check user double booking collisions on any desk
+      if (targetUserId) {
+        const userConflictDesk = allFloorDesks.find((d) =>
+          d.id !== activeDesk.id &&
+          d.bookings?.some((b) => {
+            if (b.status === 'CANCELLED') return false;
+            const bUserId = b.user?.id || b.bookedByUser?.id;
+            const bStart = b.startTime?.split('T')[0];
+            const bEnd = b.endTime?.split('T')[0];
+            return bUserId === targetUserId && dStr >= bStart && dStr <= bEnd;
+          })
+        );
+
+        if (userConflictDesk) {
+          conflicted.push({
+            date: dStr,
+            reason: `${bookingForMode === 'COLLEAGUE' && selectedColleague ? selectedColleague.name : 'You'} already have an active reservation for Desk ${userConflictDesk.deskCode} on ${dStr}`,
+          });
+          continue;
+        }
+      }
+
       available.push(dStr);
     }
 
     return { availableRangeDates: available, conflictedRangeDates: conflicted };
-  }, [activeDesk, computedRangeDates]);
+  }, [activeDesk, computedRangeDates, bookingForMode, selectedColleague, user?.id, branches]);
 
   // Bulk Selection / Team Pod Mode
   const [isBulkMode, setIsBulkMode] = useState<boolean>(false);
@@ -371,6 +446,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
 
   const handleConfirmWholeRoomBooking = async () => {
     if (!selectedMeetingRoomForBooking) return;
+    let payload: any = null;
     try {
       setIsSubmittingWholeRoom(true);
       setWholeRoomError(null);
@@ -380,7 +456,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
         throw new Error(`Meeting room reservation duration must be at least 15 minutes. Selected: ${totalMins} minutes.`);
       }
 
-      const payload: any = {
+      payload = {
         meetingRoomId: selectedMeetingRoomForBooking.id,
         bookingDate: wholeRoomDate,
         startHour: wholeRoomStartHour,
@@ -592,15 +668,16 @@ export const EmployeeFloorPlanPage: React.FC = () => {
     setSelectedColleague(null);
     setColleagueSearch('');
     setBookingNotes('');
-    setModalSlotType('FULL_DAY');
+    const todayStr = getMinBookingDate();
+    const intraday = getIntradaySlotAvailability(todayStr);
+    setModalSlotType(!intraday.morningAvailable ? 'AFTERNOON' : 'FULL_DAY');
     setModalSelectedDates([]);
     setModalWeekOffset(0);
     setDeskScheduleMode('MATRIX');
-    const todayStr = new Date().toISOString().split('T')[0];
     setRangeStartDate(todayStr);
-    const d14 = new Date();
+    const d14 = parseLocalDate(todayStr);
     d14.setDate(d14.getDate() + 14);
-    setRangeEndDate(d14.toISOString().split('T')[0]);
+    setRangeEndDate(formatLocalDate(d14));
     setRangeWeekdaysOnly(true);
     setRangeSmartSkip(false);
     setShowSmartSkipPrompt(false);
@@ -678,6 +755,16 @@ export const EmployeeFloorPlanPage: React.FC = () => {
   // Handle Bulk Pod Reservation Submission
   const handleConfirmBulkReservation = async () => {
     if (bulkSelectedDesks.length === 0 || !selectedMassDate) return;
+
+    const intraday = getIntradaySlotAvailability(selectedMassDate);
+    if (intraday.isToday && intraday.dayPassed) {
+      setErrorNotice("Today's booking window has closed (after 6:00 PM). Please select tomorrow or a future date.");
+      return;
+    }
+    if (intraday.isToday && massSlotType === 'MORNING' && !intraday.morningAvailable) {
+      setErrorNotice("Morning session (9:00 AM - 1:30 PM) has already ended for today. Please select Afternoon session.");
+      return;
+    }
 
     // Validate colleague assignments
     for (const desk of bulkSelectedDesks) {
@@ -778,6 +865,19 @@ export const EmployeeFloorPlanPage: React.FC = () => {
         return;
       }
       targetDates = modalSelectedDates;
+    }
+
+    // Intraday validation check
+    for (const dStr of targetDates) {
+      const intraday = getIntradaySlotAvailability(dStr);
+      if (intraday.isToday && intraday.dayPassed) {
+        setErrorNotice("Today's booking window has closed (after 6:00 PM). Please select tomorrow or a future date.");
+        return;
+      }
+      if (intraday.isToday && modalSlotType === 'MORNING' && !intraday.morningAvailable) {
+        setErrorNotice("Morning session (9:00 AM - 1:30 PM) has already ended for today. Please select Afternoon session.");
+        return;
+      }
     }
 
     const payload: any = {
@@ -1970,10 +2070,9 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        const s = new Date(rangeStartDate + 'T00:00:00');
-                        const e = new Date(s);
-                        e.setDate(e.getDate() + 7);
-                        setRangeEndDate(e.toISOString().split('T')[0]);
+                        const s = parseLocalDate(rangeStartDate);
+                        s.setDate(s.getDate() + 7);
+                        setRangeEndDate(formatLocalDate(s));
                       }}
                       className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800 text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
                     >
@@ -1982,10 +2081,9 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        const s = new Date(rangeStartDate + 'T00:00:00');
-                        const e = new Date(s);
-                        e.setDate(e.getDate() + 14);
-                        setRangeEndDate(e.toISOString().split('T')[0]);
+                        const s = parseLocalDate(rangeStartDate);
+                        s.setDate(s.getDate() + 14);
+                        setRangeEndDate(formatLocalDate(s));
                       }}
                       className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-100/80 border border-indigo-200 text-indigo-800 text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
                     >
@@ -1994,10 +2092,9 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        const s = new Date(rangeStartDate + 'T00:00:00');
-                        const e = new Date(s);
-                        e.setDate(e.getDate() + 30);
-                        setRangeEndDate(e.toISOString().split('T')[0]);
+                        const s = parseLocalDate(rangeStartDate);
+                        s.setDate(s.getDate() + 30);
+                        setRangeEndDate(formatLocalDate(s));
                       }}
                       className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold cursor-pointer transition-colors shadow-2xs"
                     >
@@ -2014,7 +2111,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                     <input
                       type="date"
                       value={rangeStartDate}
-                      min={new Date().toISOString().split('T')[0]}
+                      min={getMinBookingDate()}
                       onChange={(e) => {
                         setRangeStartDate(e.target.value);
                         if (e.target.value > rangeEndDate) {
@@ -2034,9 +2131,9 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                       value={rangeEndDate}
                       min={rangeStartDate}
                       max={(() => {
-                        const s = new Date(rangeStartDate + 'T00:00:00');
+                        const s = parseLocalDate(rangeStartDate);
                         s.setDate(s.getDate() + 30);
-                        return s.toISOString().split('T')[0];
+                        return formatLocalDate(s);
                       })()}
                       onChange={(e) => setRangeEndDate(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
@@ -2123,15 +2220,31 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                   <Clock className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Session Window</span>
                 </label>
-                <select
-                  value={modalSlotType}
-                  onChange={(e) => setModalSlotType(e.target.value as any)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer"
-                >
-                  <option value="FULL_DAY">Full Day (9:00 AM – 6:00 PM)</option>
-                  <option value="MORNING">Morning / First Half (9:00 AM – 1:30 PM)</option>
-                  <option value="AFTERNOON">Afternoon / Second Half (1:30 PM – 6:00 PM)</option>
-                </select>
+                {(() => {
+                  const targetDate = deskScheduleMode === 'RANGE' ? rangeStartDate : (modalSelectedDates[0] || startDate);
+                  const intraday = getIntradaySlotAvailability(targetDate);
+                  return (
+                    <>
+                      <select
+                        value={modalSlotType}
+                        onChange={(e) => setModalSlotType(e.target.value as any)}
+                        disabled={intraday.dayPassed}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none cursor-pointer disabled:opacity-50"
+                      >
+                        <option value="FULL_DAY">Full Day (9:00 AM – 6:00 PM)</option>
+                        <option value="MORNING" disabled={!intraday.morningAvailable}>
+                          Morning / First Half (9:00 AM – 1:30 PM){!intraday.morningAvailable ? ' (Concluded)' : ''}
+                        </option>
+                        <option value="AFTERNOON">Afternoon / Second Half (1:30 PM – 6:00 PM)</option>
+                      </select>
+                      {intraday.dayPassed && (
+                        <p className="mt-1 text-[11px] text-amber-700 font-medium">
+                          Today's booking hours have concluded (after 6:00 PM). Please select tomorrow or a future date.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Optional Purpose / Notes */}
@@ -2749,15 +2862,30 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                     <Clock className="w-3.5 h-3.5 text-purple-600" />
                     <span>Session Window</span>
                   </label>
-                  <select
-                    value={massSlotType}
-                    onChange={(e) => setMassSlotType(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-purple-500 focus:outline-none cursor-pointer"
-                  >
-                    <option value="FULL_DAY">Full Day (9:00 AM – 6:00 PM)</option>
-                    <option value="MORNING">Morning / First Half (9:00 AM – 1:30 PM)</option>
-                    <option value="AFTERNOON">Afternoon / Second Half (1:30 PM – 6:00 PM)</option>
-                  </select>
+                  {(() => {
+                    const intraday = getIntradaySlotAvailability(selectedMassDate);
+                    return (
+                      <>
+                        <select
+                          value={massSlotType}
+                          onChange={(e) => setMassSlotType(e.target.value as any)}
+                          disabled={intraday.dayPassed}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-purple-500 focus:outline-none cursor-pointer disabled:opacity-50"
+                        >
+                          <option value="FULL_DAY">Full Day (9:00 AM – 6:00 PM)</option>
+                          <option value="MORNING" disabled={!intraday.morningAvailable}>
+                            Morning / First Half (9:00 AM – 1:30 PM){!intraday.morningAvailable ? ' (Concluded)' : ''}
+                          </option>
+                          <option value="AFTERNOON">Afternoon / Second Half (1:30 PM – 6:00 PM)</option>
+                        </select>
+                        {intraday.dayPassed && (
+                          <p className="mt-1 text-[11px] text-amber-700 font-medium">
+                            Today's booking hours have concluded (after 6:00 PM). Please select tomorrow or a future date.
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div>

@@ -1196,9 +1196,9 @@ router.post('/bookings', authMiddleware, async (req: AuthenticatedRequest, res: 
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const maxFuture = new Date(todayStart.getTime() + 30 * 24 * 60 * 60 * 1000 + (24 * 60 * 60 * 1000 - 1));
 
-      if (computedStartTime < todayStart) {
+      if (computedStartTime < now) {
         return res.status(400).json({
-          error: 'Meeting rooms cannot be booked for past dates.',
+          error: 'Meeting rooms cannot be booked for past dates or elapsed time.',
         });
       }
 
@@ -1350,6 +1350,40 @@ router.post('/bookings', authMiddleware, async (req: AuthenticatedRequest, res: 
 
       for (const dStr of uniqueDates) {
         const { startTime, endTime, normalizedSlotType } = computeSlotTimes(dStr, slotType);
+
+        // Intraday & Past Date Validation
+        const now = new Date();
+        const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+        if (dStr < todayStr) {
+          if (skipConflicts) {
+            skippedDates.push({ date: dStr, reason: `Cannot reserve for past date (${dStr}).` });
+            continue;
+          }
+          throw new Error(`Cannot reserve workstations for past date (${dStr}).`);
+        }
+
+        if (dStr === todayStr) {
+          const currentHour = now.getHours();
+          const currentMinute = now.getMinutes();
+          const currentTimeDecimal = currentHour + currentMinute / 60;
+
+          if (currentTimeDecimal >= 18) {
+            if (skipConflicts) {
+              skippedDates.push({ date: dStr, reason: `Today's booking window has closed (after 6:00 PM).` });
+              continue;
+            }
+            throw new Error(`Today's booking window has closed (after 6:00 PM). Please select tomorrow or a future date.`);
+          }
+
+          if (normalizedSlotType === 'MORNING' && currentTimeDecimal >= 13.5) {
+            if (skipConflicts) {
+              skippedDates.push({ date: dStr, reason: `Morning session (ended at 1:30 PM) is no longer available today.` });
+              continue;
+            }
+            throw new Error(`Morning session (9:00 AM - 1:30 PM) has already ended for today. Please select Afternoon session.`);
+          }
+        }
 
         // 1. Check if desk has conflicting booking in overlapping window
         const conflictingDeskBooking = await tx.booking.findFirst({
@@ -1663,6 +1697,28 @@ router.post('/bulk-bookings', authMiddleware, async (req: AuthenticatedRequest, 
 
     const uniqueDeskIds = Array.from(new Set(deskIds));
     const { startTime, endTime, normalizedSlotType } = computeSlotTimes(bookingDate, slotType);
+
+    // Intraday & Past Date Validation
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    if (bookingDate < todayStr) {
+      return res.status(400).json({ error: `Cannot reserve workstations for past date (${bookingDate}).` });
+    }
+
+    if (bookingDate === todayStr) {
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const currentTimeDecimal = currentHour + currentMinute / 60;
+
+      if (currentTimeDecimal >= 18) {
+        return res.status(400).json({ error: `Today's booking window has closed (after 6:00 PM). Please select tomorrow or a future date.` });
+      }
+
+      if (normalizedSlotType === 'MORNING' && currentTimeDecimal >= 13.5) {
+        return res.status(400).json({ error: `Morning session (9:00 AM - 1:30 PM) has already ended for today. Please select Afternoon session.` });
+      }
+    }
 
     // Verify all desks exist within the organization
     const desks = await prisma.desk.findMany({
