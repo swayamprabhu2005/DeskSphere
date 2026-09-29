@@ -8,10 +8,23 @@ import { useTenant } from '../../context/TenantContext';
 import { fetchApi } from '../../services/api';
 import { showToast } from '../../components/common/Toast';
 
+function isColorDark(hex: string): boolean {
+  if (!hex || !hex.startsWith('#')) return false;
+  const cleanHex = hex.replace('#', '');
+  const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
+  const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
+  const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luminance < 145;
+}
+
 export const PermissionsPage: React.FC = () => {
   const { user, refreshUser } = useAuth();
-  const { refreshTenant } = useTenant();
+  const { tenant, refreshTenant } = useTenant();
   const orgId = user?.organizationId;
+  const activeOrg = user?.organization || tenant;
+  const orgColor = activeOrg?.themeColor || '#16a34a';
+  const isDark = isColorDark(orgColor);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -112,21 +125,38 @@ export const PermissionsPage: React.FC = () => {
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-16 animate-in fade-in duration-200">
       
-      {/* Header Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white shadow-xl shadow-slate-950/20">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header Banner with Dynamic Brand Theme */}
+      <div 
+        className="p-6 rounded-3xl shadow-xl transition-all duration-300 relative overflow-hidden border border-black/10"
+        style={{ backgroundColor: orgColor }}
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
           <div className="flex items-center space-x-4">
-            <div className="p-3 bg-indigo-500/20 border border-indigo-400/30 rounded-2xl text-indigo-300">
+            <div 
+              className={`p-3 rounded-2xl border ${
+                isDark 
+                  ? 'bg-white/20 border-white/30 text-white' 
+                  : 'bg-black/10 border-black/15 text-slate-900'
+              }`}
+            >
               <ShieldCheck className="w-8 h-8" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h1 className="text-xl md:text-2xl font-black tracking-tight">Governance &amp; Permissions</h1>
-                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-200 border border-emerald-400/30">
+                <h1 className={`text-xl md:text-2xl font-black tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Governance &amp; Permissions
+                </h1>
+                <span 
+                  className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border ${
+                    isDark
+                      ? 'bg-white/20 text-white border-white/25'
+                      : 'bg-black/10 text-slate-900 border-black/15'
+                  }`}
+                >
                   Tenant HQ Policy
                 </span>
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
+              <p className={`text-xs mt-0.5 max-w-2xl leading-relaxed ${isDark ? 'text-white/80' : 'text-slate-800'}`}>
                 Configure organizational operating autonomy. Decide whether branch administrators manage local workstations and rosters autonomously or follow strict centralized HQ governance.
               </p>
             </div>
@@ -135,7 +165,11 @@ export const PermissionsPage: React.FC = () => {
           <button
             onClick={loadGovernance}
             disabled={loading}
-            className="self-start md:self-auto flex items-center space-x-2 px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold transition-colors cursor-pointer text-white"
+            className={`self-start md:self-auto flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+              isDark
+                ? 'bg-white/10 hover:bg-white/20 border-white/20 text-white'
+                : 'bg-black/10 hover:bg-black/20 border-black/20 text-slate-900'
+            }`}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             <span>Refresh</span>

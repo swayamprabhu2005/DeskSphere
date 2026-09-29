@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Lock, Mail, User, Building, Globe, ArrowRight, Shield } from 'lucide-react';
+import { Lock, Mail, User, Building, Globe, ArrowRight, Shield, Eye, EyeOff } from 'lucide-react';
 import { CorporateBubbleBackdrop } from '../../components/common/CorporateBubbleBackdrop';
 
 export const SignupPage: React.FC = () => {
@@ -11,6 +11,7 @@ export const SignupPage: React.FC = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [orgName, setOrgName] = useState('');
   const [subdomain, setSubdomain] = useState('');
   
@@ -63,7 +64,51 @@ export const SignupPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="border-b border-slate-100 pb-3 mb-3">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
-                1. Administrator Profile
+                Company Details
+              </h3>
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                    Organization Name
+                  </label>
+                  <div className="relative">
+                    <Building className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      type="text"
+                      required
+                      value={orgName}
+                      onChange={e => setOrgName(e.target.value)}
+                      placeholder="Enter Org Name"
+                      className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                    Tenant Subdomain (URL identifier)
+                  </label>
+                  <div className="relative">
+                    <Globe className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      type="text"
+                      required
+                      value={subdomain}
+                      onChange={e => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                      placeholder="Enter Subdomain"
+                      className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Your portal will be accessible at <span className="font-mono font-bold text-slate-600">{subdomain || 'company'}.deskbooking.com</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+                Administrator Profile
               </h3>
               <div className="grid grid-cols-1 gap-3">
                 <div>
@@ -107,60 +152,24 @@ export const SignupPage: React.FC = () => {
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                       <input
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         required
                         autoComplete="new-password"
                         value={password}
                         onChange={e => setPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
+                        className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-10 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
                       />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
-                2. Company Details
-              </h3>
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                    Organization Name
-                  </label>
-                  <div className="relative">
-                    <Building className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      required
-                      value={orgName}
-                      onChange={e => setOrgName(e.target.value)}
-                      placeholder="Enter Org Name"
-                      className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                    Tenant Subdomain (URL identifier)
-                  </label>
-                  <div className="relative">
-                    <Globe className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      required
-                      value={subdomain}
-                      onChange={e => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                      placeholder="Enter Subdomain"
-                      className="w-full bg-slate-50/50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Your portal will be accessible at <span className="font-mono font-bold text-slate-600">{subdomain || 'company'}.deskbooking.com</span>
-                  </p>
                 </div>
               </div>
             </div>

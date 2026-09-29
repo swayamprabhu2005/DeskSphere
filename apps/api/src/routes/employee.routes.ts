@@ -42,13 +42,62 @@ router.get("/dashboard-summary", authMiddleware, async (req: AuthenticatedReques
       return res.status(404).json({ error: "Assigned branch facility not found." });
     }
 
-    // 1. Fetch current active booking for this employee (if any)
-    const activeBooking = await prisma.booking.findFirst({
+    // Helper to format booking objects for dashboard response
+    const formatBookingPayload = (b: any) => {
+      if (!b) return null;
+      const isMeeting = b.resourceType === 'MEETING_ROOM' || !!b.meetingRoom || !!b.meetingRoomId;
+      return {
+        id: b.id,
+        resourceType: b.resourceType || (isMeeting ? 'MEETING_ROOM' : 'DESK'),
+        title: b.title,
+        slotType: b.slotType,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        status: b.status,
+        notes: b.notes,
+        desk: b.desk
+          ? {
+              id: b.desk.id,
+              deskCode: b.desk.deskCode,
+              hasHdmi: b.desk.hasHdmi,
+              isMeetingRoom: b.desk.isMeetingRoom,
+              sectionName: b.desk.section?.name,
+              floorCode: b.desk.section?.floor?.code,
+              floorName: b.desk.section?.floor?.name,
+              buildingName: b.desk.section?.floor?.building?.name,
+              branchName: b.desk.section?.floor?.building?.branch?.name,
+            }
+          : null,
+        meetingRoom: b.meetingRoom
+          ? {
+              id: b.meetingRoom.id,
+              name: b.meetingRoom.name,
+              capacity: b.meetingRoom.capacity,
+              sectionName: b.meetingRoom.section?.name,
+              floorCode: b.meetingRoom.section?.floor?.code,
+              floorName: b.meetingRoom.section?.floor?.name,
+              buildingName: b.meetingRoom.section?.floor?.building?.name,
+              branchName: b.meetingRoom.section?.floor?.building?.branch?.name,
+            }
+          : null,
+        bookedByColleague:
+          b.bookedByUserId && b.bookedByUserId !== user.id
+            ? b.bookedByUser
+            : null,
+      };
+    };
+
+    // 1. Fetch active bookings for this employee for TODAY (full calendar day)
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    const todayUserBookings = await prisma.booking.findMany({
       where: {
         organizationId: orgId,
         userId: user.id,
         status: "CONFIRMED",
-        endTime: { gte: now },
+        startTime: { lte: todayEnd },
+        endTime: { gte: todayStart },
       },
       include: {
         desk: {
@@ -92,12 +141,23 @@ router.get("/dashboard-summary", authMiddleware, async (req: AuthenticatedReques
       orderBy: { startTime: "asc" },
     });
 
-    // 2. Fetch upcoming bookings for this employee
+    const activeMeetingRoomBooking = todayUserBookings.find(
+      (b) => b.resourceType === 'MEETING_ROOM' || b.meetingRoomId != null
+    );
+    const activeDeskBooking = todayUserBookings.find(
+      (b) => b.deskId != null && b.resourceType !== 'MEETING_ROOM'
+    );
+    const primaryActiveBooking = activeMeetingRoomBooking || activeDeskBooking || todayUserBookings[0] || null;
+
+    const todayBookingIds = todayUserBookings.map((b) => b.id);
+
+    // 2. Fetch upcoming bookings for future dates (excluding today's active reservations)
     const upcomingBookings = await prisma.booking.findMany({
       where: {
         organizationId: orgId,
         userId: user.id,
         status: "CONFIRMED",
+        id: { notIn: todayBookingIds },
         startTime: { gt: now },
       },
       include: {
@@ -140,7 +200,7 @@ router.get("/dashboard-summary", authMiddleware, async (req: AuthenticatedReques
       },
     });
 
-    // 4. Compute live facility metrics for the employees branch
+    // 4. Compute live facility metrics for the employee's branch
     const branchBuildings = await prisma.building.findMany({
       where: { branchId: branch.id, organizationId: orgId },
       include: {
@@ -158,35 +218,74 @@ router.get("/dashboard-summary", authMiddleware, async (req: AuthenticatedReques
     });
 
     let totalDesks = 0;
-    let hdmiDesks = 0;
-    let meetingRoomsCount = 0;
+    let totalHdmiDesks = 0;
+    let totalMeetingRooms = 0;
     const allBranchDeskIds: string[] = [];
+    const allBranchMeetingRoomIds: string[] = [];
+    const hdmiDeskIdSet = new Set<string>();
 
     for (const bld of branchBuildings) {
       for (const fl of bld.floors) {
         for (const sec of fl.sections) {
-          if (sec.meetingRoom) meetingRoomsCount++;
+          if (sec.meetingRoom) {
+            totalMeetingRooms++;
+            allBranchMeetingRoomIds.push(sec.meetingRoom.id);
+          }
           for (const d of sec.desks) {
             totalDesks++;
-            if (d.hasHdmi) hdmiDesks++;
             allBranchDeskIds.push(d.id);
+            if (d.hasHdmi) {
+              totalHdmiDesks++;
+              hdmiDeskIdSet.add(d.id);
+            }
           }
         }
       }
     }
 
-    // Active concurrent bookings in this branch right now
-    const activeBranchBookingsCount = await prisma.booking.count({
+    // Live confirmed desk bookings for TODAY in this branch
+    const todayBranchDeskBookings = await prisma.booking.findMany({
       where: {
         organizationId: orgId,
         deskId: { in: allBranchDeskIds },
         status: "CONFIRMED",
-        startTime: { lte: now },
-        endTime: { gte: now },
+        startTime: { lte: todayEnd },
+        endTime: { gte: todayStart },
       },
+      select: { deskId: true },
     });
 
-    const availableDesks = Math.max(0, totalDesks - activeBranchBookingsCount);
+    const uniqueReservedDeskIds = new Set(
+      todayBranchDeskBookings.map((b) => b.deskId).filter(Boolean) as string[]
+    );
+    const reservedDesksToday = uniqueReservedDeskIds.size;
+    const availableDesks = Math.max(0, totalDesks - reservedDesksToday);
+
+    let reservedHdmiToday = 0;
+    for (const dId of uniqueReservedDeskIds) {
+      if (hdmiDeskIdSet.has(dId)) {
+        reservedHdmiToday++;
+      }
+    }
+    const availableHdmiDesks = Math.max(0, totalHdmiDesks - reservedHdmiToday);
+
+    // Live confirmed meeting room bookings for TODAY in this branch
+    const todayBranchMeetingBookings = await prisma.booking.findMany({
+      where: {
+        organizationId: orgId,
+        meetingRoomId: { in: allBranchMeetingRoomIds },
+        status: "CONFIRMED",
+        startTime: { lte: todayEnd },
+        endTime: { gte: todayStart },
+      },
+      select: { meetingRoomId: true },
+    });
+
+    const uniqueReservedRoomIds = new Set(
+      todayBranchMeetingBookings.map((b) => b.meetingRoomId).filter(Boolean) as string[]
+    );
+    const reservedRoomsToday = uniqueReservedRoomIds.size;
+    const availableMeetingRooms = Math.max(0, totalMeetingRooms - reservedRoomsToday);
 
     return res.json({
       user: {
@@ -201,47 +300,9 @@ router.get("/dashboard-summary", authMiddleware, async (req: AuthenticatedReques
         name: branch.name,
         code: branch.code,
       },
-      activeBooking: activeBooking
-        ? {
-            id: activeBooking.id,
-            resourceType: activeBooking.resourceType || (activeBooking.meetingRoomId ? 'MEETING_ROOM' : 'DESK'),
-            title: activeBooking.title,
-            slotType: activeBooking.slotType,
-            startTime: activeBooking.startTime,
-            endTime: activeBooking.endTime,
-            status: activeBooking.status,
-            notes: activeBooking.notes,
-            desk: activeBooking.desk
-              ? {
-                  id: activeBooking.desk.id,
-                  deskCode: activeBooking.desk.deskCode,
-                  hasHdmi: activeBooking.desk.hasHdmi,
-                  isMeetingRoom: activeBooking.desk.isMeetingRoom,
-                  sectionName: activeBooking.desk.section?.name,
-                  floorCode: activeBooking.desk.section?.floor?.code,
-                  floorName: activeBooking.desk.section?.floor?.name,
-                  buildingName: activeBooking.desk.section?.floor?.building?.name,
-                  branchName: activeBooking.desk.section?.floor?.building?.branch?.name,
-                }
-              : null,
-            meetingRoom: activeBooking.meetingRoom
-              ? {
-                  id: activeBooking.meetingRoom.id,
-                  name: activeBooking.meetingRoom.name,
-                  capacity: activeBooking.meetingRoom.capacity,
-                  sectionName: activeBooking.meetingRoom.section?.name,
-                  floorCode: activeBooking.meetingRoom.section?.floor?.code,
-                  floorName: activeBooking.meetingRoom.section?.floor?.name,
-                  buildingName: activeBooking.meetingRoom.section?.floor?.building?.name,
-                  branchName: activeBooking.meetingRoom.section?.floor?.building?.branch?.name,
-                }
-              : null,
-            bookedByColleague:
-              activeBooking.bookedByUserId && activeBooking.bookedByUserId !== user.id
-                ? activeBooking.bookedByUser
-                : null,
-          }
-        : null,
+      activeBooking: formatBookingPayload(primaryActiveBooking),
+      activeMeetingRoom: formatBookingPayload(activeMeetingRoomBooking),
+      activeDesk: formatBookingPayload(activeDeskBooking),
       upcomingBookings: upcomingBookings.map((b) => ({
         id: b.id,
         resourceType: b.resourceType || (b.meetingRoomId ? 'MEETING_ROOM' : 'DESK'),
@@ -258,9 +319,13 @@ router.get("/dashboard-summary", authMiddleware, async (req: AuthenticatedReques
       stats: {
         totalDesks,
         availableDesks,
-        reservedDesks: activeBranchBookingsCount,
-        hdmiDesks,
-        meetingRoomsCount,
+        reservedDesks: reservedDesksToday,
+        hdmiDesks: availableHdmiDesks,
+        totalHdmiDesks,
+        availableHdmiDesks,
+        meetingRoomsCount: availableMeetingRooms,
+        totalMeetingRooms,
+        availableMeetingRooms,
         myBookingsCount: totalCompletedBookings,
       },
     });

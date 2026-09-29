@@ -1474,7 +1474,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
             >
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.name} ({b.code})
+                  {b.name}
                 </option>
               ))}
             </select>
@@ -1502,7 +1502,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
             >
               {currentBranch?.buildings.map((bld) => (
                 <option key={bld.id} value={bld.id}>
-                  {bld.name} ({bld.code})
+                  {bld.name}
                 </option>
               ))}
             </select>
@@ -1527,7 +1527,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
             >
               {currentBuilding?.floors.map((fl) => (
                 <option key={fl.id} value={fl.id}>
-                  {formatFloorDisplayName(fl)} ({fl.code})
+                  {formatFloorDisplayName(fl)}
                 </option>
               ))}
             </select>

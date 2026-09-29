@@ -82,13 +82,19 @@ interface DashboardSummaryData {
     code: string;
   };
   activeBooking: ActiveBooking | null;
+  activeMeetingRoom?: ActiveBooking | null;
+  activeDesk?: ActiveBooking | null;
   upcomingBookings: UpcomingBooking[];
   stats: {
     totalDesks: number;
     availableDesks: number;
     reservedDesks: number;
     hdmiDesks: number;
+    totalHdmiDesks?: number;
+    availableHdmiDesks?: number;
     meetingRoomsCount: number;
+    totalMeetingRooms?: number;
+    availableMeetingRooms?: number;
     myBookingsCount: number;
   };
 }
@@ -100,6 +106,7 @@ export const EmployeeDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [releasing, setReleasing] = useState(false);
   const [actionNotice, setActionNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [activeHeroTab, setActiveHeroTab] = useState<'MEETING_ROOM' | 'DESK'>('MEETING_ROOM');
 
   const activeOrg = user?.organization || tenant;
   const orgColor = activeOrg?.themeColor || "#16a34a";
@@ -109,6 +116,11 @@ export const EmployeeDashboard: React.FC = () => {
       setLoading(true);
       const res = await fetchApi<DashboardSummaryData>("/employee/dashboard-summary");
       setData(res);
+      if (res.activeMeetingRoom && !res.activeDesk) {
+        setActiveHeroTab('MEETING_ROOM');
+      } else if (res.activeDesk && !res.activeMeetingRoom) {
+        setActiveHeroTab('DESK');
+      }
     } catch (err: any) {
       console.error("Failed to load employee dashboard:", err);
     } finally {
@@ -170,7 +182,10 @@ export const EmployeeDashboard: React.FC = () => {
     );
   }
 
-  const activeBooking = data?.activeBooking;
+  const hasBothToday = !!(data?.activeMeetingRoom && data?.activeDesk);
+  const activeBooking = hasBothToday
+    ? (activeHeroTab === 'MEETING_ROOM' ? data.activeMeetingRoom : data.activeDesk)
+    : (data?.activeMeetingRoom || data?.activeDesk || data?.activeBooking || null);
   const stats = data?.stats;
 
   return (
@@ -262,6 +277,39 @@ export const EmployeeDashboard: React.FC = () => {
                 />
 
                 <div>
+                  {/* Same-Day Co-existing Reservation Switcher */}
+                  {hasBothToday && (
+                    <div className="flex flex-wrap items-center gap-2 p-1.5 bg-black/35 backdrop-blur-md rounded-2xl border border-white/15 mb-4 w-fit">
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-300 px-2">
+                        Today's Bookings:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveHeroTab('MEETING_ROOM')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                          activeHeroTab === 'MEETING_ROOM'
+                            ? 'bg-purple-600 text-white shadow-md'
+                            : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Meeting Room ({data?.activeMeetingRoom?.meetingRoom?.capacity || 24} Seats)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveHeroTab('DESK')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                          activeHeroTab === 'DESK'
+                            ? 'bg-emerald-600 text-white shadow-md'
+                            : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        <Monitor className="w-3.5 h-3.5" />
+                        <span>Workstation (Desk {data?.activeDesk?.desk?.deskCode || 'Active'})</span>
+                      </button>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span
@@ -420,7 +468,7 @@ export const EmployeeDashboard: React.FC = () => {
                   <span>HDMI</span>
                 </div>
                 <div className="text-2xl font-black text-blue-900 mt-0.5">
-                  {stats?.hdmiDesks ?? 0}
+                  {stats?.availableHdmiDesks ?? stats?.hdmiDesks ?? 0}
                 </div>
                 <div className="text-[9px] text-blue-700 font-semibold mt-0.5">
                   Display stations
@@ -434,7 +482,7 @@ export const EmployeeDashboard: React.FC = () => {
                   <span>Rooms</span>
                 </div>
                 <div className="text-2xl font-black text-emerald-900 mt-0.5">
-                  {stats?.meetingRoomsCount ?? 0}
+                  {stats?.availableMeetingRooms ?? stats?.meetingRoomsCount ?? 0}
                 </div>
                 <div className="text-[9px] text-emerald-700 font-semibold mt-0.5">
                   Conference pods
