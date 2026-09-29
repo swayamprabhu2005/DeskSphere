@@ -9,6 +9,8 @@ import {
   cacheFloorPlanData, 
   getCachedFloorPlanData,
   getPendingOutboxItems,
+  cacheColleagues,
+  getCachedColleagues,
 } from '../../services/offlineStore';
 import {
   Calendar,
@@ -425,8 +427,21 @@ export const EmployeeFloorPlanPage: React.FC = () => {
   const [wholeRoomNotes, setWholeRoomNotes] = useState<string>('');
   const [wholeRoomForMode, setWholeRoomForMode] = useState<'SELF' | 'COLLEAGUE'>('SELF');
   const [wholeRoomColleagueId, setWholeRoomColleagueId] = useState<string>('');
+  const [wholeRoomColleagueSearch, setWholeRoomColleagueSearch] = useState<string>('');
+  const [selectedWholeRoomColleague, setSelectedWholeRoomColleague] = useState<ColleagueItem | null>(null);
   const [isSubmittingWholeRoom, setIsSubmittingWholeRoom] = useState<boolean>(false);
   const [wholeRoomError, setWholeRoomError] = useState<string | null>(null);
+
+  const wholeRoomFilteredColleagues = useMemo(() => {
+    const q = wholeRoomColleagueSearch.trim().toLowerCase();
+    if (!q) return colleaguesList;
+    return colleaguesList.filter(
+      (c) =>
+        c.name?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q) ||
+        (c.department && c.department.toLowerCase().includes(q))
+    );
+  }, [colleaguesList, wholeRoomColleagueSearch]);
 
   const handleOpenWholeRoomModal = (room: MeetingRoomItem) => {
     setSelectedMeetingRoomForBooking(room);
@@ -440,6 +455,8 @@ export const EmployeeFloorPlanPage: React.FC = () => {
     setWholeRoomNotes('');
     setWholeRoomForMode('SELF');
     setWholeRoomColleagueId('');
+    setSelectedWholeRoomColleague(null);
+    setWholeRoomColleagueSearch('');
     setWholeRoomError(null);
     setIsWholeRoomModalOpen(true);
   };
@@ -450,6 +467,12 @@ export const EmployeeFloorPlanPage: React.FC = () => {
     try {
       setIsSubmittingWholeRoom(true);
       setWholeRoomError(null);
+
+      if (wholeRoomForMode === 'COLLEAGUE' && !wholeRoomColleagueId) {
+        setWholeRoomError('Please search and select a colleague for this meeting room reservation.');
+        setIsSubmittingWholeRoom(false);
+        return;
+      }
 
       const totalMins = wholeRoomDurationHours * 60 + wholeRoomDurationMinutes;
       if (totalMins < 15) {
@@ -566,6 +589,14 @@ export const EmployeeFloorPlanPage: React.FC = () => {
       if (cached && cached.length > 0) {
         setBranches(cached);
         initHierarchySelection(cached);
+        const currentBranchId = selectedBranchId || cached[0]?.id;
+        if (currentBranchId) {
+          getCachedColleagues(currentBranchId).then((cachedColleagues) => {
+            if (cachedColleagues && cachedColleagues.length > 0) {
+              setColleaguesList(cachedColleagues);
+            }
+          });
+        }
         setErrorNotice(null);
         setLoading(false);
         return;
@@ -594,6 +625,19 @@ export const EmployeeFloorPlanPage: React.FC = () => {
       }
 
       initHierarchySelection(branchList);
+
+      // Proactively pre-cache colleagues for offline resilience
+      const currentBranchId = selectedBranchId || branchList[0]?.id;
+      if (currentBranchId && isAppOnline()) {
+        fetchApi<{ colleagues: ColleagueItem[] }>(`/employee/colleagues?branchId=${currentBranchId}`)
+          .then((colleagueRes) => {
+            if (colleagueRes?.colleagues && colleagueRes.colleagues.length > 0) {
+              cacheColleagues(currentBranchId, colleagueRes.colleagues);
+              setColleaguesList((prev) => (prev.length === 0 ? colleagueRes.colleagues : prev));
+            }
+          })
+          .catch((e) => console.warn('Background colleague pre-cache warning:', e));
+      }
     } catch (err: any) {
       console.error('Failed to load floor plans:', err);
       // Fallback to cache on network failure
@@ -601,6 +645,14 @@ export const EmployeeFloorPlanPage: React.FC = () => {
       if (cached && cached.length > 0) {
         setBranches(cached);
         initHierarchySelection(cached);
+        const currentBranchId = selectedBranchId || cached[0]?.id;
+        if (currentBranchId) {
+          getCachedColleagues(currentBranchId).then((cachedColleagues) => {
+            if (cachedColleagues && cachedColleagues.length > 0) {
+              setColleaguesList(cachedColleagues);
+            }
+          });
+        }
         setErrorNotice(null);
       } else {
         setErrorNotice(err.message || 'Unable to retrieve floor plan layout.');
@@ -635,20 +687,50 @@ export const EmployeeFloorPlanPage: React.FC = () => {
     const searchColleagues = async () => {
       try {
         setIsLoadingColleagues(true);
+        const targetBranch = selectedBranchId || branches[0]?.id || 'default';
+
+        if (!isAppOnline()) {
+          const cached = (await getCachedColleagues(targetBranch)) || [];
+          if (!isMounted) return;
+          const q = colleagueSearch.trim().toLowerCase();
+          if (q) {
+            setColleaguesList(
+              cached.filter(
+                (c: ColleagueItem) =>
+                  c.name?.toLowerCase().includes(q) ||
+                  c.email?.toLowerCase().includes(q) ||
+                  (c.department && c.department.toLowerCase().includes(q))
+              )
+            );
+          } else {
+            setColleaguesList(cached);
+          }
+          return;
+        }
+
         const params = new URLSearchParams();
         if (colleagueSearch.trim()) {
           params.append('search', colleagueSearch.trim());
         }
-        if (selectedBranchId) {
-          params.append('branchId', selectedBranchId);
+        if (selectedBranchId || branches[0]?.id) {
+          params.append('branchId', selectedBranchId || branches[0]?.id);
         }
 
         const res = await fetchApi<{ colleagues: ColleagueItem[] }>(`/employee/colleagues?${params.toString()}`);
         if (isMounted) {
-          setColleaguesList(res?.colleagues || []);
+          const fetched = res?.colleagues || [];
+          setColleaguesList(fetched);
+          if (!colleagueSearch.trim() && fetched.length > 0) {
+            cacheColleagues(targetBranch, fetched);
+          }
         }
       } catch (err) {
         console.error('Failed to fetch colleagues:', err);
+        const targetBranch = selectedBranchId || branches[0]?.id || 'default';
+        const cached = await getCachedColleagues(targetBranch);
+        if (isMounted && cached && cached.length > 0) {
+          setColleaguesList(cached);
+        }
       } finally {
         if (isMounted) setIsLoadingColleagues(false);
       }
@@ -659,7 +741,7 @@ export const EmployeeFloorPlanPage: React.FC = () => {
       isMounted = false;
       clearTimeout(debounceTimer);
     };
-  }, [bookingForMode, colleagueSearch, selectedBranchId]);
+  }, [bookingForMode, colleagueSearch, selectedBranchId, branches]);
 
   // When a desk is opened in modal, set defaults without pre-selecting all dates
   const openDeskInspector = (desk: EmployeeDeskItem) => {
@@ -733,24 +815,48 @@ export const EmployeeFloorPlanPage: React.FC = () => {
     });
   };
 
-  // Load colleagues for pod allocation when bulk modal opens
+  // Load colleagues for pod allocation or whole room booking when modal opens
   useEffect(() => {
-    if (isBulkModalOpen && colleaguesList.length === 0) {
+    const shouldLoadColleagues =
+      (isBulkModalOpen || (isWholeRoomModalOpen && wholeRoomForMode === 'COLLEAGUE')) &&
+      colleaguesList.length === 0;
+
+    if (shouldLoadColleagues) {
+      let isMounted = true;
       const loadColleagues = async () => {
+        const targetBranch = selectedBranchId || branches[0]?.id || 'default';
         try {
+          if (!isAppOnline()) {
+            const cached = await getCachedColleagues(targetBranch);
+            if (isMounted && cached) {
+              setColleaguesList(cached);
+            }
+            return;
+          }
+
           const params = new URLSearchParams();
-          if (selectedBranchId) params.append('branchId', selectedBranchId);
+          if (selectedBranchId || branches[0]?.id) {
+            params.append('branchId', selectedBranchId || branches[0]?.id);
+          }
           const res = await fetchApi<{ colleagues: ColleagueItem[] }>(`/employee/colleagues?${params.toString()}`);
-          if (res?.colleagues) {
+          if (isMounted && res?.colleagues) {
             setColleaguesList(res.colleagues);
+            cacheColleagues(targetBranch, res.colleagues);
           }
         } catch (err) {
-          console.error('Failed to load colleagues for pod allocation:', err);
+          console.error('Failed to load colleagues for pod or room allocation:', err);
+          const cached = await getCachedColleagues(targetBranch);
+          if (isMounted && cached) {
+            setColleaguesList(cached);
+          }
         }
       };
       loadColleagues();
+      return () => {
+        isMounted = false;
+      };
     }
-  }, [isBulkModalOpen, selectedBranchId, colleaguesList.length]);
+  }, [isBulkModalOpen, isWholeRoomModalOpen, wholeRoomForMode, selectedBranchId, branches, colleaguesList.length]);
 
   // Handle Bulk Pod Reservation Submission
   const handleConfirmBulkReservation = async () => {
@@ -3277,7 +3383,12 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                       <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200">
                         <button
                           type="button"
-                          onClick={() => setWholeRoomForMode('SELF')}
+                          onClick={() => {
+                            setWholeRoomForMode('SELF');
+                            setWholeRoomColleagueId('');
+                            setSelectedWholeRoomColleague(null);
+                            setWholeRoomColleagueSearch('');
+                          }}
                           className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
                             wholeRoomForMode === 'SELF'
                               ? 'bg-white text-purple-700 shadow-xs'
@@ -3299,19 +3410,75 @@ export const EmployeeFloorPlanPage: React.FC = () => {
                         </button>
                       </div>
                       {wholeRoomForMode === 'COLLEAGUE' && (
-                        <div className="mt-2">
-                          <select
-                            value={wholeRoomColleagueId}
-                            onChange={(e) => setWholeRoomColleagueId(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:ring-2 focus:ring-purple-500 focus:outline-none cursor-pointer"
-                          >
-                            <option value="">Select a colleague...</option>
-                            {colleaguesList.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name} ({c.email}) - {c.department}
-                              </option>
-                            ))}
-                          </select>
+                        <div className="mt-2 space-y-2 p-3 bg-purple-50/50 rounded-2xl border border-purple-200">
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-purple-400 absolute left-3 top-2.5 pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder="Search colleagues by name, email, or department..."
+                              value={wholeRoomColleagueSearch}
+                              onChange={(e) => setWholeRoomColleagueSearch(e.target.value)}
+                              className="w-full bg-white border border-purple-200 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                            />
+                            {isLoadingColleagues && (
+                              <Loader2 className="w-3.5 h-3.5 text-purple-400 absolute right-3 top-2.5 animate-spin" />
+                            )}
+                          </div>
+
+                          {selectedWholeRoomColleague ? (
+                            <div className="flex items-center justify-between p-2.5 bg-white border border-purple-200 rounded-xl text-xs text-purple-900 shadow-xs">
+                              <div>
+                                <span className="font-bold">{selectedWholeRoomColleague.name}</span>
+                                <span className="text-slate-500 ml-2">({selectedWholeRoomColleague.email})</span>
+                                {selectedWholeRoomColleague.department && (
+                                  <span className="text-[10px] text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded ml-2 font-medium">
+                                    {selectedWholeRoomColleague.department}
+                                  </span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedWholeRoomColleague(null);
+                                  setWholeRoomColleagueId('');
+                                }}
+                                className="text-slate-400 hover:text-purple-600 cursor-pointer p-1"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="max-h-36 overflow-y-auto space-y-1 bg-white p-1 rounded-xl border border-purple-100 shadow-xs">
+                              {wholeRoomFilteredColleagues.length > 0 ? (
+                                wholeRoomFilteredColleagues.map((colleague) => (
+                                  <button
+                                    key={colleague.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedWholeRoomColleague(colleague);
+                                      setWholeRoomColleagueId(colleague.id);
+                                      setWholeRoomColleagueSearch('');
+                                    }}
+                                    className="w-full text-left p-2 rounded-lg hover:bg-purple-50 transition-colors flex items-center justify-between text-xs cursor-pointer"
+                                  >
+                                    <div>
+                                      <span className="font-bold text-slate-800">{colleague.name}</span>
+                                      {colleague.department && (
+                                        <span className="text-slate-400 ml-2">({colleague.department})</span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] font-mono text-slate-500">{colleague.email}</span>
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="text-center py-2 text-xs text-slate-400">
+                                  {wholeRoomColleagueSearch
+                                    ? 'No colleagues found matching query'
+                                    : 'No colleagues available in this branch'}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

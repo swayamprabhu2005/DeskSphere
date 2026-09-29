@@ -7,7 +7,7 @@
 import { fetchApi } from './api';
 
 const DB_NAME = 'deskbooking_offline_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export interface OutboxItem {
   id: string;
@@ -43,6 +43,10 @@ export async function getOfflineDb(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains('my_bookings_cache')) {
         db.createObjectStore('my_bookings_cache', { keyPath: 'userId' });
+      }
+
+      if (!db.objectStoreNames.contains('colleagues_cache')) {
+        db.createObjectStore('colleagues_cache', { keyPath: 'branchId' });
       }
     };
 
@@ -275,6 +279,48 @@ export async function getCachedMyBookings(userId: string): Promise<any[] | null>
 
       req.onsuccess = () => {
         resolve(req.result?.bookings || null);
+      };
+
+      req.onerror = () => {
+        resolve(null);
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cache colleagues list for a branch in IndexedDB
+ */
+export async function cacheColleagues(branchId: string, colleagues: any[]): Promise<void> {
+  try {
+    const db = await getOfflineDb();
+    const tx = db.transaction('colleagues_cache', 'readwrite');
+    const store = tx.objectStore('colleagues_cache');
+    store.put({
+      branchId,
+      colleagues,
+      cachedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('Failed to cache colleagues offline:', err);
+  }
+}
+
+/**
+ * Retrieve cached colleagues for a branch from IndexedDB
+ */
+export async function getCachedColleagues(branchId: string): Promise<any[] | null> {
+  try {
+    const db = await getOfflineDb();
+    return new Promise((resolve) => {
+      const tx = db.transaction('colleagues_cache', 'readonly');
+      const store = tx.objectStore('colleagues_cache');
+      const req = store.get(branchId);
+
+      req.onsuccess = () => {
+        resolve(req.result?.colleagues || null);
       };
 
       req.onerror = () => {
