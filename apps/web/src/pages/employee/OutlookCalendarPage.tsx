@@ -140,6 +140,16 @@ function parseLocalDate(dStr: string): Date {
   return new Date(y, (m || 1) - 1, d || 1);
 }
 
+function getMinBookingDate(): string {
+  const now = new Date();
+  if (now.getHours() >= 18) {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return formatLocalDate(tomorrow);
+  }
+  return formatLocalDate(now);
+}
+
 export const OutlookCalendarPage: React.FC = () => {
   const { user } = useAuth();
 
@@ -287,11 +297,13 @@ export const OutlookCalendarPage: React.FC = () => {
     loadHierarchyAndColleagues();
   }, []);
 
-  // Filtered Events with Search Query
+  // Filtered Events with Search Query (past events excluded as past events are not required)
   const filteredEvents = useMemo(() => {
-    if (!searchQuery.trim()) return events;
+    const todayStr = formatLocalDate(new Date());
+    const activeAndFutureEvents = events.filter((e) => e.bookingDate >= todayStr);
+    if (!searchQuery.trim()) return activeAndFutureEvents;
     const q = searchQuery.toLowerCase();
-    return events.filter(
+    return activeAndFutureEvents.filter(
       (e) =>
         e.resourceCode.toLowerCase().includes(q) ||
         e.title?.toLowerCase().includes(q) ||
@@ -332,6 +344,7 @@ export const OutlookCalendarPage: React.FC = () => {
       dateStr: string;
       isCurrentMonth: boolean;
       isToday: boolean;
+      isPast: boolean;
       events: CalendarEventItem[];
     }> = [];
 
@@ -339,6 +352,7 @@ export const OutlookCalendarPage: React.FC = () => {
     const prevMonthLastDay = new Date(year, month, 0).getDate();
 
     const todayLocalStr = formatLocalDate(new Date());
+    const minBookingDate = getMinBookingDate();
 
     // Previous month padding
     for (let i = startDay - 1; i >= 0; i--) {
@@ -349,6 +363,7 @@ export const OutlookCalendarPage: React.FC = () => {
         dateStr,
         isCurrentMonth: false,
         isToday: dateStr === todayLocalStr,
+        isPast: dateStr < minBookingDate,
         events: filteredEvents.filter((e) => e.bookingDate === dateStr),
       });
     }
@@ -362,6 +377,7 @@ export const OutlookCalendarPage: React.FC = () => {
         dateStr,
         isCurrentMonth: true,
         isToday: dateStr === todayLocalStr,
+        isPast: dateStr < minBookingDate,
         events: filteredEvents.filter((e) => e.bookingDate === dateStr),
       });
     }
@@ -376,6 +392,7 @@ export const OutlookCalendarPage: React.FC = () => {
         dateStr,
         isCurrentMonth: false,
         isToday: dateStr === todayLocalStr,
+        isPast: dateStr < minBookingDate,
         events: filteredEvents.filter((e) => e.bookingDate === dateStr),
       });
     }
@@ -596,6 +613,9 @@ export const OutlookCalendarPage: React.FC = () => {
 
   // Open Date-Click Single-Day Booking Modal
   const handleOpenDateBooking = (dateStr: string) => {
+    const minBookingDate = getMinBookingDate();
+    if (dateStr < minBookingDate) return;
+
     setBookingModalDate(dateStr);
     setBookingDurationMode('SINGLE');
     setRangeStartDate(dateStr);
@@ -626,6 +646,7 @@ export const OutlookCalendarPage: React.FC = () => {
       setIsSubmittingBooking(true);
       setModalErrorNotice(null);
 
+      const minBookingDate = getMinBookingDate();
       const isSmartSkipActive = forceSmartSkip !== undefined ? forceSmartSkip : rangeSmartSkip;
 
       const payload: any = {
@@ -658,9 +679,15 @@ export const OutlookCalendarPage: React.FC = () => {
           payload.bookingDates = targetDates;
           payload.skipConflicts = isSmartSkipActive;
         } else {
+          if (bookingModalDate < minBookingDate) {
+            throw new Error('Cannot reserve workstation for past dates.');
+          }
           payload.bookingDate = bookingModalDate;
         }
       } else {
+        if (bookingModalDate < minBookingDate) {
+          throw new Error('Cannot reserve meeting room for past dates.');
+        }
         payload.bookingDate = bookingModalDate;
         if (!sectionMeetingRoom) {
           throw new Error('No meeting room configured in this section.');
@@ -931,20 +958,28 @@ export const OutlookCalendarPage: React.FC = () => {
           {monthCalendarDays.map((cell, idx) => (
             <div
               key={idx}
-              onClick={() => handleOpenDateBooking(cell.dateStr)}
-              className={`min-h-[135px] p-2 flex flex-col justify-between transition-colors cursor-pointer group select-none ${
-                cell.isCurrentMonth
-                  ? 'bg-white hover:bg-blue-50/40'
-                  : 'bg-slate-50/50 text-slate-400 hover:bg-slate-100/50'
+              onClick={cell.isPast ? undefined : () => handleOpenDateBooking(cell.dateStr)}
+              className={`min-h-[135px] p-2 flex flex-col justify-between transition-colors select-none ${
+                cell.isPast
+                  ? 'bg-slate-50/60 text-slate-300 cursor-default'
+                  : cell.isCurrentMonth
+                  ? 'bg-white hover:bg-blue-50/40 cursor-pointer group'
+                  : 'bg-slate-50/50 text-slate-400 hover:bg-slate-100/50 cursor-pointer group'
               }`}
-              title={`Click to reserve workstation or meeting room on ${cell.dateStr}`}
+              title={
+                cell.isPast
+                  ? `Past date (${cell.dateStr})`
+                  : `Click to reserve workstation or meeting room on ${cell.dateStr}`
+              }
             >
               {/* Cell Header */}
               <div className="flex items-center justify-between mb-1.5">
                 <span
-                  className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full ${
+                  className={`text-xs w-6 h-6 flex items-center justify-center rounded-full ${
                     cell.isToday
                       ? 'bg-blue-600 text-white shadow-xs font-black'
+                      : cell.isPast
+                      ? 'text-slate-400 font-medium'
                       : cell.isCurrentMonth
                       ? 'text-slate-800 group-hover:text-blue-600 font-bold'
                       : 'text-slate-400'
@@ -952,9 +987,11 @@ export const OutlookCalendarPage: React.FC = () => {
                 >
                   {cell.date.getDate()}
                 </span>
-                <span className="text-[10px] font-bold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                  + Book
-                </span>
+                {!cell.isPast && (
+                  <span className="text-[10px] font-bold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                    + Book
+                  </span>
+                )}
               </div>
 
               {/* Event Chips List */}
@@ -999,7 +1036,7 @@ export const OutlookCalendarPage: React.FC = () => {
                   );
                 })}
 
-                {cell.events.length === 0 && (
+                {cell.events.length === 0 && !cell.isPast && (
                   <div className="h-full flex items-center justify-center text-[10px] text-slate-300 group-hover:text-blue-500 font-bold py-2 transition-colors">
                     Click to Reserve
                   </div>
@@ -1250,7 +1287,7 @@ export const OutlookCalendarPage: React.FC = () => {
                           <input
                             type="date"
                             value={rangeStartDate}
-                            min={formatLocalDate(new Date())}
+                            min={getMinBookingDate()}
                             onChange={(e) => {
                               setRangeStartDate(e.target.value);
                               if (e.target.value > rangeEndDate) setRangeEndDate(e.target.value);

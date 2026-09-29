@@ -60,7 +60,7 @@ flowchart TD
         EMP -->|"Booking Management"| CANCEL["Cancel Selected / Bulk Cancel"]:::employee
     end
 
-    subgraph Storage["SQLite Offline-First Storage Layer"]
+    subgraph Storage["PostgreSQL & IndexedDB Offline-First Storage Layer"]
         DB[("Multi-Tenant Relational Schema\n- Organization, Branch, Building\n- Floor, Section, Desk, MeetingRoom\n- User, Booking, AuditLog")]:::database
     end
 
@@ -119,15 +119,23 @@ flowchart TD
 ### 5. 👨‍💼 Employee & Branch Admin Workspace Portal
 - **Role-Unified Booking Access**: Both Employees and Branch Admins enjoy full access to Reserve Workstation, Outlook Calendar, and My Bookings.
 - **Employee Dashboard** (`/`):
-  - Personalized greeting with facility metrics (Total Desks, Available Desks, HDMI Monitors, Meeting Rooms).
-  - Active Booking Hero Card with desk code, slot window, location hierarchy, and instant **Release Workstation** action.
+  - **Live Dynamic Facility Occupancy Metrics Engine**: Real-time telemetry reflecting full-day facility availability:
+    - 🟢 `AVAILABLE`: Workstations ready to reserve (decrements live upon booking, increments upon cancellation/release).
+    - 🔴 `OCCUPIED`: Total workstation reservations active for the current calendar day.
+    - 🖥️ `HDMI`: Display stations with HDMI connectivity currently available today.
+    - 🏢 `ROOMS`: Conference pods ready to host team sessions today.
+  - **Same-Day Co-existing Hero Card & Segmented Switcher**: Employees can hold both 1 personal workstation and 1 whole meeting room simultaneously on the same calendar day. When both reservations exist for today, an interactive segmented toggle (`[ 🏢 Meeting Room ] [ 💻 Workstation ]`) allows instant switching between active sessions with full specifications and direct release actions.
 - **Workstation Reservation** (`/employee/floor-plan`):
+  - **Automated Intraday Slot Cut-off Policy**:
+    - **Before 1:30 PM**: All shift slots (`Full Day`, `Morning Half`, `Afternoon Half`) are open.
+    - **1:30 PM – 6:00 PM**: Morning session is automatically disabled; only Afternoon remains bookable.
+    - **After 6:00 PM**: Today's booking window is closed; date selectors automatically advance to tomorrow.
   - **3 Shift Window Slots**: Full Day (09:00–18:00), Morning (09:00–13:30), Afternoon (13:30–18:00).
-  - **30-Day Range Reservations**: Flexible date range booking mode allowing up to 30 consecutive days in a single action, complete with quick-select chips (`+7d`, `+14d`, `+30d`) and a `Weekdays Only (Mon-Fri)` filter.
+  - **30-Day Range Reservations**: Flexible date range booking mode allowing up to 30 consecutive days in a single action, complete with dynamic active highlight chips (`+7d`, `+14d`, `+30d`) and a `Weekdays Only (Mon-Fri)` filter.
   - **Smart Skip Conflict Resolution**: Real-time conflict engine that detects existing reservations across the range. When conflicts occur, the user or branch admin is prompted whether to perform a **Smart Skip** to automatically book all remaining conflict-free days or adjust dates.
-  - **Whole Meeting Room Booking**: Reserve entire conference rooms with start time, duration in hours & minutes (minimum 15m enforced), title, and attendee headcount.
-  - **Workstation Inspector Drawer**: Book for Myself or proxy-book on behalf of a colleague with live directory search.
-- **Team Pod Mode & Assignee Allocation (Bulk Multi-Desk Booking)**: Select up to 8 desks simultaneously or reserve entire 4-desk pod clusters in one click. The mass workstation booking modal allows designating each desk individually to `[ Myself ]` or assigning to a specific `[ Colleague / Teammate ]` with live branch directory search, department tags, and conflict detection across a sliding 7-day window.
+  - **Whole Meeting Room Booking**: Reserve entire conference rooms with start time, duration in hours & minutes (minimum 15m enforced), title, and attendee headcount. Includes a searchable colleague picker with name, email, and department tags.
+  - **Workstation Inspector Drawer & Collision Auto-Dismiss**: Book for Myself or proxy-book on behalf of a colleague with live directory search. Built-in collision pre-validation and catch-block auto-dismiss immediately closes the drawer and smoothly scrolls to the top of the viewport to display clear conflict banners if double-booking is attempted.
+- **Team Pod Mode & Assignee Allocation (Bulk Multi-Desk Booking)**: Select up to 8 desks simultaneously or reserve entire 4-desk pod clusters in one click. The mass workstation booking modal allows designating each desk individually to `[ Myself ]` or assigning to a specific `[ Colleague / Teammate ]` with live branch directory search, department tags, and conflict detection across a sliding 7-day window. If the user already holds a workstation on the selected date, the system automatically locks the `Myself` option and requires colleague allocation.
 - **My Bookings History** (`/employee/my-bookings`):
   - Tabbed filtering: `ALL`, `CONFIRMED`, `PAST`, `CANCELLED`.
   - **Cancel Selected**: Checkbox-based multi-select for selective mass cancellation.
@@ -141,19 +149,23 @@ flowchart TD
   - Resource type toggles (`All` | `Cubicles` | `Meeting Rooms`).
   - Live filter search across event codes, colleague names, meeting titles, and buildings.
   - Non-overlapping sticky layout ensuring ribbon controls remain neatly underneath the navigation bar.
+- **Past-Date Booking Protection & Timezone Integrity**:
+  - **Past Date Blocking**: Dates prior to today (or prior to tomorrow after 6:00 PM) are strictly non-bookable (`cell.dateStr < minBookingDate`). Past cells are styled with muted backgrounds, suppress the `+ Book` hover button and empty `Click to Reserve` affordances, and reject booking attempts.
+  - **Past Events Filtration**: Completed past events are cleanly filtered from the monthly grid, presenting a distraction-free view of current and future reservations.
+  - **Timezone-Accurate IST Alignment**: Built with timezone-safe local date formatting (`formatLocalDate`), eliminating UTC+5:30 off-by-one shifts and 1-column event alignment errors.
 - **Date-Click Multi-Day Reservation Modal**:
-  - Clicking any date cell in the Month view opens a focused reservation modal with choice of **Single Day** or **Date Range (Up to 30 Days)**.
-  - **Horizontal Cascade Bar**: `[ Building ▾ ]  [ Floor ▾ ]  [ Section ▾ ]` with intelligent defaults.
+  - Clicking any valid date cell in the Month view opens a focused reservation modal with choice of **Single Day** or **Date Range (Up to 30 Days)**.
+  - **Horizontal Cascade Bar**: `[ Building ▾ ]  [ Floor ▾ ]  [ Section ▾ ]` with clean display names (no internal database code clutter).
   - **Dynamic Availability Filtering**:
     - **Cubicles Dropdown**: Displays **ONLY** cubicles with zero confirmed bookings on that clicked date. If completely booked, an informative alert is displayed: `"No cubicles available in this section on [Date]"`.
     - **Meeting Rooms Dropdown**: Displays available conference rooms with capacity and HDMI specifications, or warns if already booked on that date.
   - **Multi-Day Horizon & Smart Skip**:
-    - Choose arbitrary multi-day ranges up to 30 days with `Weekdays Only` toggle.
+    - Choose arbitrary multi-day ranges up to 30 days with `Weekdays Only` toggle and synchronized dynamic preset chips (`+7d`, `+14d`, `+30d`).
     - Live conflict checking across the range with prompted Smart Skip confirmation to reserve conflict-free dates seamlessly.
   - **Shift Slots & Durations**:
     - Cubicle slots: `Full Day (09:00 - 18:00)`, `Morning Half (09:00 - 13:30)`, `Evening Half (13:30 - 18:00)`.
     - Meeting room reservations: Start time picker + numeric hours & minutes duration (strictly requiring at least 15 minutes).
-  - **Beneficiary Selection**: Seamlessly choose `For Myself` or `On Behalf of Colleague` with live directory search.
+  - **Beneficiary Selection**: Seamlessly choose `For Myself` or `On Behalf of Colleague` with live directory search and selected colleague pill.
   - **Single Event Inspector**: Clicking an event chip reveals full reservation details, proxy attribution, and provides instant single-click cancellation authority for personal or branch bookings.
 
 ---
@@ -175,8 +187,10 @@ flowchart TD
 
 ### 8. 📡 Offline-First Engine & Background Sync
 - **Role-Gated Offline Support**: Offline capabilities are exclusively available to **Employee** and **Branch Admin** roles. Platform and Organization Admins remain strictly online for governance integrity.
-- **IndexedDB Outbox Queue**: Desk reservations and cancellations made while offline are queued in an IndexedDB `outbox_queue` store with FIFO replay upon reconnection.
-- **Floor Plan Cache**: Complete workspace hierarchies are cached in IndexedDB `floorplan_cache`, enabling desk browsing without network connectivity.
+- **IndexedDB Multi-Store Resilience**:
+  - `outbox_queue`: Desk reservations, cancellations, and issue tickets made while offline are queued with FIFO replay upon reconnection.
+  - `floorplan_cache`: Complete workspace hierarchies are cached in IndexedDB, enabling desk browsing without network connectivity.
+  - `colleagues_cache`: Branch colleague rosters are cached locally (IndexedDB v3) for offline directory search and proxy booking without DevTools fetch errors.
 - **Network Status Indicator**: A real-time connectivity pill in the header shows Online/Offline/Syncing states with pending operation count badges.
 - **Automatic Background Sync**: On network restoration, queued operations are automatically replayed via standard HTTP POST to the API server.
 
@@ -237,11 +251,15 @@ flowchart TD
   - Root unauthenticated visitors arrive at the public landing page with "Sign In" and "Create Organization" call-to-action paths.
   - Authenticated sessions dynamically route directly to the user's role-scoped dashboard (Platform Admin, Org Admin, Branch Admin, or Employee).
   - Explicit `/login`, `/register`, and `/signup` routes ensure smooth multi-tenant onboarding.
+- **Streamlined Tenant Registration & Password Controls**:
+  - Intuitive sign-up architecture presenting **Company Details** (Organization Name, Tenant Subdomain) first, followed by the **Administrator Profile** (Full Name, Corporate Email, Password).
+  - Built-in interactive password visibility toggle eye button for transparent, error-free administrative credentials setup.
 
 ---
 
 ### 15. 🎨 Multi-Tenant Isolated Brand Theming Engine
 - **Strict Tenant Style Isolation**: Organization brand colors are dynamically mapped to CSS tokens (`--brand-primary`, `--brand-subtle`, `--brand-light`, `--brand-border`, `--brand-text`) exclusively within that organization's authenticated session.
+- **Luminance Auto-Contrast Adaptation**: Dynamic contrast computation automatically switches text, icon, and badge highlights between light and dark across the top navigation bar and administrative banners (including the Governance & Permissions module) based on the background color's calculated luminance.
 - **Platform Superadmin & Public Immunity**: The Platform Superadmin portal, public landing page, login page, and organization creation pages strictly retain the default corporate slate/indigo theme and are never tainted by tenant customizations.
 - **Zero-Reload Live Propagation**: Theme color changes applied in `/admin/branding` take effect instantly across active components without browser reload.
 
@@ -332,13 +350,15 @@ MultiTenant-OfflineFirst-DeskBooking/
 ```powershell
 .\run.bat
 ```
-The `run.bat` script will:
-1. Detect or start PostgreSQL via Docker Compose on port `5432`.
-2. Verify and clean port allocations on `3000` and `4000`.
-3. Install pnpm workspace dependencies.
-4. Generate the Prisma client, push the database schema, and seed initial data.
-5. Start the API server on `http://localhost:4000` and the web frontend on `http://localhost:3000`.
-6. Auto-launch the web console in your default browser.
+The `run.bat` script provides a zero-config, highly resilient startup workflow:
+1. Validates or auto-installs `pnpm` globally via npm if not present on `PATH`.
+2. Validates `.env` presence and pre-checks `DATABASE_URL` connectivity.
+3. Detects or automatically starts PostgreSQL via Docker Compose on port `5432`.
+4. Verifies and terminates stale processes holding ports `3000` and `4000`.
+5. Installs all workspace dependencies across the monorepo.
+6. Generates the Prisma client, pushes the relational database schema, and seeds initial multi-tenant data.
+7. Starts the API server on `http://localhost:4000` and the web frontend on `http://localhost:3000`.
+8. Automatically launches the workplace portal in your default browser.
 
 ### Manual Startup
 ```bash

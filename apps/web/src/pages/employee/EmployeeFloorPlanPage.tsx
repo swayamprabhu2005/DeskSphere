@@ -1017,6 +1017,38 @@ export const EmployeeFloorPlanPage: React.FC = () => {
       }
     }
 
+    // Check if reserving for SELF and user already has an active cubicle on any target date
+    if (bookingForMode === 'SELF' && user?.id) {
+      const allDesks = branches.flatMap((b) =>
+        b.buildings.flatMap((bld) =>
+          bld.floors.flatMap((f) => f.sections.flatMap((s) => s.desks))
+        )
+      );
+
+      for (const dStr of targetDates) {
+        const conflictingDesk = allDesks.find((d) =>
+          !d.isMeetingRoom &&
+          !d.deskCode?.startsWith('M-') &&
+          d.bookings?.some((b) => {
+            if (b.status === 'CANCELLED') return false;
+            const bUserId = b.user?.id || b.userId || (b as any).bookedByUser?.id;
+            const bStart = b.startTime?.split('T')[0];
+            const bEnd = b.endTime?.split('T')[0];
+            return bUserId === user.id && dStr >= bStart && dStr <= bEnd;
+          })
+        );
+
+        if (conflictingDesk) {
+          setErrorNotice(
+            `User already has an active reservation for Desk ${conflictingDesk.deskCode} on ${dStr}.`
+          );
+          setActiveDesk(null);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+      }
+    }
+
     const payload: any = {
       deskId: activeDesk.id,
       bookingDates: targetDates,
@@ -1082,6 +1114,8 @@ export const EmployeeFloorPlanPage: React.FC = () => {
         setActiveDesk(null);
       } else {
         setErrorNotice(err.message || 'Failed to complete desk reservation.');
+        setActiveDesk(null);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } finally {
       setIsSubmittingBooking(false);
