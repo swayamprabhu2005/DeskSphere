@@ -1415,6 +1415,7 @@ router.post('/bookings', authMiddleware, async (req: AuthenticatedRequest, res: 
           where: {
             organizationId: orgId,
             userId: targetUserId,
+            deskId: { not: null },
             status: 'CONFIRMED',
             startTime: { lt: endTime },
             endTime: { gt: startTime },
@@ -1426,12 +1427,12 @@ router.post('/bookings', authMiddleware, async (req: AuthenticatedRequest, res: 
           if (skipConflicts) {
             skippedDates.push({
               date: dStr,
-              reason: `Target user already has an active reservation for ${conflictingUserBooking.desk ? `Desk ${conflictingUserBooking.desk.deskCode}` : 'a resource'} on ${dStr}`,
+              reason: `Target user already has an active reservation for Desk ${conflictingUserBooking.desk?.deskCode || 'another workstation'} on ${dStr}`,
             });
             continue;
           }
           throw new Error(
-            `User already has an active reservation for ${conflictingUserBooking.desk ? `Desk ${conflictingUserBooking.desk.deskCode}` : 'a resource'} on ${dStr}.`
+            `User already has an active reservation for Desk ${conflictingUserBooking.desk?.deskCode || 'another workstation'} on ${dStr}.`
           );
         }
 
@@ -1777,6 +1778,32 @@ router.post('/bulk-bookings', authMiddleware, async (req: AuthenticatedRequest, 
       if (conflicts.length > 0) {
         const conflictCodes = conflicts.map((c) => c.desk?.deskCode || 'N/A').join(', ');
         throw new Error(`The following workstation(s) are already reserved: ${conflictCodes}`);
+      }
+
+      // 2. Concurrency check: Ensure each assigned user does not already hold another cubicle on this date
+      const assignedUserIds = Array.from(allocationMap.values()).map((a) => a.targetUserId);
+      const duplicateUserId = assignedUserIds.find((id, idx) => assignedUserIds.indexOf(id) !== idx);
+      if (duplicateUserId) {
+        throw new Error('A user cannot be assigned to more than one workstation in the same reservation.');
+      }
+
+      const existingUserBookings = await tx.booking.findMany({
+        where: {
+          organizationId: orgId,
+          userId: { in: assignedUserIds },
+          deskId: { not: null },
+          status: 'CONFIRMED',
+          startTime: { lt: endTime },
+          endTime: { gt: startTime },
+        },
+        include: { desk: true, user: true },
+      });
+
+      if (existingUserBookings.length > 0) {
+        const conflictUsers = existingUserBookings
+          .map((b) => `${b.user?.name || 'A user'} (Desk ${b.desk?.deskCode || 'N/A'})`)
+          .join(', ');
+        throw new Error(`The following user(s) already have an active workstation reservation on this date: ${conflictUsers}`);
       }
 
       // 2. Create bookings

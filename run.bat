@@ -94,6 +94,49 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENIN
 )
 echo Port allocations verified.
 
+:check_pnpm
+echo.
+echo Checking PNPM package manager availability...
+where pnpm >nul 2>nul
+if !errorlevel! neq 0 (
+    echo [INFO] PNPM package manager was not found on your system.
+    echo Attempting to install PNPM globally via npm...
+    where npm >nul 2>nul
+    if !errorlevel! neq 0 (
+        echo [ERROR] Neither PNPM nor NPM was found on your system.
+        echo Please install Node.js including npm from https://nodejs.org/ and retry.
+        pause
+        exit /b 1
+    )
+    call npm install -g pnpm
+    if !errorlevel! neq 0 (
+        echo [ERROR] Failed to install PNPM globally.
+        echo Please install PNPM manually by running 'npm install -g pnpm' in an elevated terminal and retry.
+        pause
+        exit /b 1
+    )
+    echo PNPM installed successfully.
+)
+
+:check_env
+echo Checking environment configuration...
+if not exist "apps\api\.env" (
+    echo [ERROR] apps\api\.env configuration file is missing.
+    echo Please create apps\api\.env using .env.example as a template and configure your DATABASE_URL credentials properly.
+    echo Example command: copy .env.example apps\api\.env
+    pause
+    exit /b 1
+)
+
+:: Verify that DATABASE_URL is properly configured in apps\api\.env
+findstr /i /r "^DATABASE_URL=.*postgresql://" "apps\api\.env" >nul 2>nul
+if !errorlevel! neq 0 (
+    echo [ERROR] DATABASE_URL is not properly configured in apps\api\.env.
+    echo Please ensure apps\api\.env contains a valid PostgreSQL connection string starting with 'postgresql://'.
+    pause
+    exit /b 1
+)
+
 :check_deps
 echo.
 echo [3/5] Installing PNPM workspace dependencies...
