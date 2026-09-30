@@ -43,9 +43,11 @@ export const SignupPage: React.FC = () => {
       <div className="max-w-lg w-full relative z-10">
         <div className="bg-white border border-slate-200/80 rounded-2xl p-6 sm:p-8 shadow-xl">
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-emerald-600 text-white font-black text-xl shadow-lg shadow-emerald-600/20 mb-3 border border-emerald-500/20">
-              S
-            </div>
+            <img
+              src="/logo.png"
+              alt="DeskSphere Logo"
+              className="inline-block w-14 h-14 object-contain rounded-2xl shadow-lg shadow-emerald-600/20 mb-3 border border-emerald-500/20 bg-white"
+            />
             <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
               Create Organization
             </h1>

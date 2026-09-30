@@ -1,4 +1,8 @@
-# 🏢 Multi-Tenant Offline-First Desk Booking
+<p align="center">
+  <img src="apps/web/public/logo.png" alt="DeskSphere Logo" width="110" />
+</p>
+
+# 🏢 DeskSphere
 
 > An enterprise-grade, multi-tenant SaaS platform for desk booking, facility administration, and workspace orchestration — engineered with strict subdomain isolation, a 5-sheet automated Excel ingestion engine, an interactive 2D architectural floor plan explorer, and a complete employee self-service workplace portal.
 
@@ -457,5 +461,5 @@ All significant architectural decisions are documented as ADRs in the [`ADR/`](A
 
 ---
 
-*Built with care — Multi-Tenant Offline-First Desk Booking Platform*
+*Built with care — DeskSphere Platform*
 

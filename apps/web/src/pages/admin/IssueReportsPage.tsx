@@ -239,20 +239,25 @@ export const IssueReportsPage: React.FC = () => {
     <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-in fade-in duration-200">
       
       {/* Header Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-slate-800 text-white shadow-xl shadow-slate-950/20">
+      <div 
+        className="p-6 rounded-2xl border border-indigo-400/20 text-white shadow-xl shadow-indigo-950/30"
+        style={{
+          background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 25%, #4338ca 52%, #0284c7 78%, #059669 100%)',
+        }}
+      >
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
-            <div className="p-3 bg-indigo-500/20 border border-indigo-400/30 rounded-2xl text-indigo-300">
+            <div className="p-3 bg-white/15 border border-white/25 rounded-2xl text-white shadow-xs">
               <ShieldAlert className="w-8 h-8" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h1 className="text-xl md:text-2xl font-black tracking-tight">Platform Issue Reports</h1>
-                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                <h1 className="text-xl md:text-2xl font-black tracking-tight text-white">Platform Issue Reports</h1>
+                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-white/20 text-white border border-white/30 backdrop-blur-xs">
                   Global Control Plane
                 </span>
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
+              <p className="text-xs text-white/85 mt-0.5">
                 Centralized operational grievance stream. Investigate and resolve issues escalated by Employees, Branch Admins, and Organization Admins.
               </p>
             </div>

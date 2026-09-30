@@ -41,7 +41,13 @@ export const Header: React.FC = () => {
         
         {/* Left: Tenant Branding */}
         <div className="flex items-center space-x-3">
-          {activeOrg?.logoUrl ? (
+          {isPlatformAdmin ? (
+            <img
+              src="/logo.png"
+              alt="DeskSphere Logo"
+              className="w-9 h-9 object-contain rounded-lg p-0.5 shadow-sm bg-white border border-white/30 shadow-indigo-950/40"
+            />
+          ) : activeOrg?.logoUrl ? (
             <img
               src={activeOrg.logoUrl}
               alt={activeOrg.name}
@@ -52,9 +58,7 @@ export const Header: React.FC = () => {
           ) : (
             <div 
               className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-lg shadow-sm border ${
-                isPlatformAdmin
-                  ? 'bg-gradient-to-br from-indigo-600 via-purple-600 to-emerald-500 text-white border-white/30 shadow-indigo-950/50'
-                  : isDark
+                isDark
                   ? 'bg-white/20 text-white border-white/30'
                   : 'bg-black/15 text-slate-950 border-black/20'
               }`}

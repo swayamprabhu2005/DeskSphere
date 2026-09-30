@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Lock, Mail, ArrowRight, Shield, Zap, Eye, EyeOff, Sparkles } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Shield, Eye, EyeOff } from 'lucide-react';
 import { CorporateBubbleBackdrop } from '../../components/common/CorporateBubbleBackdrop';
 export const LoginPage: React.FC = () => {
-  const { isAuthenticated, login, loginWithToken, loginWithSsoSandbox } = useAuth();
+  const { isAuthenticated, login, loginWithToken } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -14,8 +14,6 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSsoLoading] = useState(false);
-  const [showSandbox, setShowSandbox] = useState(false);
-  const [sandboxEmail, setSandboxEmail] = useState('');
 
   // If already authenticated, redirect to dashboard immediately
   useEffect(() => {
@@ -53,19 +51,6 @@ export const LoginPage: React.FC = () => {
     window.location.href = '/api/auth/sso/microsoft';
   };
 
-  const handleSandboxLogin = async (targetEmail: string) => {
-    setError(null);
-    setLoading(true);
-    try {
-      await loginWithSsoSandbox(targetEmail);
-      navigate('/');
-    } catch (err: any) {
-      setError(err.message || 'SSO Sandbox login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -94,15 +79,14 @@ export const LoginPage: React.FC = () => {
       <div className="max-w-md w-full relative z-10">
         <div className="bg-white border border-slate-200/80 rounded-2xl p-6 sm:p-8 shadow-xl">
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-600 text-white font-black text-2xl shadow-lg shadow-emerald-600/20 mb-3 border border-emerald-500/20">
-              M
-            </div>
+            <img
+              src="/logo.png"
+              alt="DeskSphere Logo"
+              className="inline-block w-14 h-14 object-contain rounded-2xl shadow-lg shadow-emerald-600/20 mb-3 border border-emerald-500/20 bg-white"
+            />
             <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-              Multi-Tenant SaaS
+              DeskSphere
             </h1>
-            <p className="text-slate-500 text-xs mt-1">
-              Platform &amp; Organization Administration Console
-            </p>
           </div>
 
           {error && (
@@ -203,47 +187,8 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Quick Demo & SSO Sandbox Bar */}
+          {/* Platform Administrator Demo Access */}
           <div className="mt-6 pt-5 border-t border-slate-100">
-            <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 mb-3">
-              <div className="flex items-center space-x-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-500" />
-                <span>Quick Demo Accounts</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowSandbox(!showSandbox)}
-                className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center space-x-1"
-              >
-                <Sparkles className="w-3 h-3" />
-                <span>{showSandbox ? 'Hide Sandbox' : 'SSO Sandbox'}</span>
-              </button>
-            </div>
-
-            {showSandbox ? (
-              <div className="p-3 bg-blue-50/60 border border-blue-200/80 rounded-xl mb-3 space-y-2">
-                <div className="text-[10px] font-semibold text-blue-800">
-                  Simulate Microsoft SSO for any registered email:
-                </div>
-                <div className="flex space-x-2">
-                  <input
-                    type="email"
-                    value={sandboxEmail}
-                    onChange={e => setSandboxEmail(e.target.value)}
-                    placeholder="e.g. employee@company.com"
-                    className="flex-1 bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleSandboxLogin(sandboxEmail || 'admin@deskbooking.com')}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded-lg transition-colors"
-                  >
-                    Simulate SSO
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
             <button
               type="button"
               onClick={() => handleDemoLogin('admin@deskbooking.com')}

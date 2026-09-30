@@ -2,7 +2,6 @@ import React from 'react';
 import { motion, type Variants } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Building2,
   Shield,
   Zap,
   Calendar,
@@ -132,12 +131,14 @@ export const HomePage: React.FC = () => {
       <header className="relative z-20 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl sticky top-0 shadow-xs">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-600 flex items-center justify-center shadow-md shadow-emerald-600/20 border border-emerald-500/20">
-              <Building2 className="w-5 h-5 text-white" />
-            </div>
+            <img
+              src="/logo.png"
+              alt="DeskSphere Logo"
+              className="w-10 h-10 object-contain rounded-xl shadow-md border border-emerald-500/20 bg-white"
+            />
             <div>
               <div className="flex items-center space-x-2">
-                <span className="text-xl font-black tracking-tight text-slate-900">WorkSpaceOS</span>
+                <span className="text-xl font-black tracking-tight text-slate-900">DeskSphere</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                   Enterprise
                 </span>
@@ -336,26 +337,6 @@ export const HomePage: React.FC = () => {
                   </div>
                 </div>
               </div>
-
-              <div className="mt-8 pt-8 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="text-xs text-slate-500 font-medium">
-                  Ready to deploy WorkSpaceOS for your branches and corporate headquarters?
-                </div>
-                <div className="flex items-center space-x-3 w-full sm:w-auto">
-                  <Link
-                    to="/register"
-                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all text-center"
-                  >
-                    Create Organization
-                  </Link>
-                  <Link
-                    to="/login"
-                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-all text-center border border-slate-200"
-                  >
-                    Sign In
-                  </Link>
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -364,7 +345,7 @@ export const HomePage: React.FC = () => {
       {/* Corporate Minimal Footer (Centered Copyright, Clean) */}
       <footer className="border-t border-slate-200 py-8 bg-white text-slate-400 text-xs">
         <div className="max-w-7xl mx-auto px-6 text-center">
-          <span>© 2026 WorkSpaceOS Inc. All rights reserved.</span>
+          <span>© 2026 DeskSphere Inc. All rights reserved.</span>
         </div>
       </footer>
     </div>
